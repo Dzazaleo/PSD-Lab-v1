@@ -14,6 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 
 import { LoadPSDNode } from './components/LoadPSDNode';
+import { TargetTemplateNode } from './components/TargetTemplateNode';
 import { DesignInfoNode } from './components/DesignInfoNode';
 import { TemplateSplitterNode } from './components/TemplateSplitterNode';
 import { ContainerResolverNode } from './components/ContainerResolverNode';
@@ -24,6 +25,12 @@ const initialNodes: Node<PSDNodeData>[] = [
     id: 'node-1',
     type: 'loadPsd',
     position: { x: 100, y: 100 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+  {
+    id: 'node-target-1',
+    type: 'targetTemplate',
+    position: { x: 100, y: 400 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
@@ -75,6 +82,7 @@ const App: React.FC = () => {
   // Register custom node types
   const nodeTypes = useMemo(() => ({
     loadPsd: LoadPSDNode,
+    targetTemplate: TargetTemplateNode,
     designInfo: DesignInfoNode,
     templateSplitter: TemplateSplitterNode,
     containerResolver: ContainerResolverNode,

@@ -78,5 +78,16 @@ export interface PSDNodeData {
   error?: string | null;
 }
 
+export interface TargetTemplateData {
+  fileName: string | null;
+  template: TemplateMetadata | null;
+  // Targets act as skeletons, so they don't have design layers or self-validation reports
+  validation: null;
+  designLayers: null;
+  containerContext: null;
+  mappingContext: null;
+  error?: string | null;
+}
+
 // Re-export Psd type for convenience in other files
 export type { Psd };
