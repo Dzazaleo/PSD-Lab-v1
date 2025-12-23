@@ -56,7 +56,19 @@ const App: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
+    (params: Connection) => setEdges((eds) => {
+      // Logic: Ensure only one edge connects to any given target handle.
+      // Intercept connection and remove any existing edge on the specific target handle.
+      const targetHandle = params.targetHandle || null;
+      
+      const cleanEdges = eds.filter((edge) => {
+        const edgeTargetHandle = edge.targetHandle || null;
+        // Keep the edge if it targets a different node OR a different handle on the same node
+        return edge.target !== params.target || edgeTargetHandle !== targetHandle;
+      });
+      
+      return addEdge(params, cleanEdges);
+    }),
     [setEdges]
   );
 
