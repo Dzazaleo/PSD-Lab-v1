@@ -1,27 +1,43 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useEffect } from 'react';
 import { Handle, Position, NodeProps, useEdges, useNodes, Node } from 'reactflow';
 import { PSDNodeData } from '../types';
+import { useProceduralStore } from '../store/ProceduralContext';
 
 export const TargetSplitterNode = memo(({ id }: NodeProps) => {
   const edges = useEdges();
-  const nodes = useNodes();
+  
+  // Connect to Store
+  const { templateRegistry, registerTemplate, unregisterNode } = useProceduralStore();
 
-  // 1. Identify the TargetTemplateNode connected to 'template-input'
-  const templateSourceNode = useMemo(() => {
+  // 1. Identify Upstream TargetTemplate Node ID
+  const upstreamNodeId = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'template-input');
-    if (!edge) return null;
-    return nodes.find(n => n.id === edge.source) as Node<PSDNodeData>;
-  }, [edges, nodes, id]);
+    return edge ? edge.source : null;
+  }, [edges, id]);
 
-  const template = templateSourceNode?.data?.template;
+  // 2. Fetch Template from Store
+  const template = upstreamNodeId ? templateRegistry[upstreamNodeId] : null;
+
+  // 3. Broadcast Template as "Self" to Store
+  // This allows Remapper nodes connected to this splitter to look up the template by THIS node's ID.
+  useEffect(() => {
+    if (template) {
+        registerTemplate(id, template);
+    }
+  }, [id, template, registerTemplate]);
+
+  // Cleanup
+  useEffect(() => {
+    return () => unregisterNode(id);
+  }, [id, unregisterNode]);
+
+
   const containers = template?.containers || [];
 
-  // 2. Identify connected content slots
-  // We scan edges to see which dynamic container handles have connections (e.g. from ContainerResolver)
+  // 4. Identify connected content slots (UI logic)
   const connectedSlots = useMemo(() => {
     const connected = new Set<string>();
     edges.forEach(e => {
-        // Filter for edges targeting this node, but NOT the template-input handle
         if (e.target === id && e.targetHandle && e.targetHandle !== 'template-input') {
             connected.add(e.targetHandle);
         }
@@ -94,7 +110,7 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
                        <Handle
                          type="target"
                          position={Position.Left}
-                         id={container.name} // Handle ID matches container name
+                         id={container.name} 
                          className={`!w-3 !h-3 !-left-1.5 transition-colors duration-300 ${
                            isFilled 
                              ? '!bg-emerald-500 !border-emerald-200' 

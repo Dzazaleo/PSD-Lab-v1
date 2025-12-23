@@ -1,105 +1,68 @@
 import React, { memo, useMemo, useEffect } from 'react';
-import { Handle, Position, NodeProps, useEdges, useNodes, Node, useReactFlow } from 'reactflow';
-import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer, ContainerDefinition } from '../types';
+import { Handle, Position, NodeProps, useEdges, useReactFlow } from 'reactflow';
+import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer } from '../types';
+import { useProceduralStore } from '../store/ProceduralContext';
 
 export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   const { setNodes } = useReactFlow();
   const edges = useEdges();
-  const nodes = useNodes();
+  
+  // Consume data from Store
+  const { templateRegistry, resolvedRegistry, unregisterNode } = useProceduralStore();
 
-  // Helper to safely get node by ID
-  const getNode = (nodeId: string) => nodes.find(n => n.id === nodeId) as Node<PSDNodeData> | undefined;
+  // Cleanup
+  useEffect(() => {
+    return () => unregisterNode(id);
+  }, [id, unregisterNode]);
 
   // --------------------------------------------------------------------------
   // 1. Resolve Source Data (Content + Source Bounds)
   // --------------------------------------------------------------------------
-  // Logic: Remapper(source-input) <--- (source-N)Resolver(target-N) <--- (ContainerName)TemplateSplitter
+  // Strategy: Identify Source Node ID -> Look up 'resolvedRegistry'
   const sourceData = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'source-input');
     if (!edge || !edge.sourceHandle) return null;
 
-    const sourceNode = getNode(edge.source);
-    if (!sourceNode) return null;
+    const sourceNodeId = edge.source;
+    const sourceHandleId = edge.sourceHandle;
 
-    let containerName: string | null = null;
-    let originalBounds: { x: number; y: number; w: number; h: number } | null = null;
+    // Check if the source node has registered data in the store
+    const resolvedData = resolvedRegistry[sourceNodeId];
+    if (!resolvedData) return null;
 
-    // PATH A: Connection via ContainerResolver (Expected)
-    if (sourceNode.type === 'containerResolver') {
-       // Map output handle "source-X" to input handle "target-X"
-       const index = edge.sourceHandle.replace('source-', '');
-       const resolverInputHandleId = `target-${index}`;
-       
-       // Find the edge feeding the resolver at this specific index
-       const resolverInputEdge = edges.find(e => e.target === sourceNode.id && e.targetHandle === resolverInputHandleId);
-       
-       // The sourceHandle of the edge feeding the resolver IS the container name (from TemplateSplitter)
-       if (resolverInputEdge && resolverInputEdge.sourceHandle) {
-           containerName = resolverInputEdge.sourceHandle; 
-           
-           // Resolve Source Bounds from the TemplateSplitter
-           const splitterNode = getNode(resolverInputEdge.source);
-           const template = splitterNode?.data?.template;
-           if (template) {
-               const cDef = template.containers.find(c => c.name === containerName);
-               if (cDef) originalBounds = cDef.bounds;
-           }
-       }
-    } 
-    // PATH B: Direct Connection from TemplateSplitter (Fallback/Legacy)
-    else if (sourceNode.type === 'templateSplitter') {
-       containerName = edge.sourceHandle;
-       const template = sourceNode.data?.template;
-       if (template) {
-           const cDef = template.containers.find(c => c.name === containerName);
-           if (cDef) originalBounds = cDef.bounds;
-       }
-    }
+    // Retrieve specific channel context
+    const context = resolvedData[sourceHandleId];
+    if (!context) return null;
 
-    if (containerName && originalBounds) {
-        // Resolve Layer Content from Global State (LoadPSDNode)
-        const loadPsdNode = nodes.find(n => n.type === 'loadPsd') as Node<PSDNodeData>;
-        const designLayers = loadPsdNode?.data?.designLayers;
-
-        if (designLayers) {
-            const cleanName = containerName.replace(/^!+/, '').trim();
-            // Try exact match then case-insensitive
-            const group = designLayers.find(l => l.name === cleanName) || 
-                          designLayers.find(l => l.name.toLowerCase() === cleanName.toLowerCase());
-            
-            if (group && group.children) {
-                return {
-                    containerName,
-                    layers: group.children,
-                    originalBounds
-                };
-            }
-        }
-    }
-
-    return null;
-  }, [edges, nodes, id]);
+    return {
+        containerName: context.container.containerName,
+        layers: context.layers,
+        originalBounds: context.container.bounds
+    };
+  }, [edges, id, resolvedRegistry]);
 
 
   // --------------------------------------------------------------------------
   // 2. Resolve Target Data (Destination Bounds)
   // --------------------------------------------------------------------------
-  // Logic: Remapper(target-input) <--- (slot-bounds-ContainerName)TargetSplitter
+  // Strategy: Identify Source Node ID -> Look up 'templateRegistry' (Since TargetSplitter broadcasts template)
   const targetData = useMemo(() => {
      const edge = edges.find(e => e.target === id && e.targetHandle === 'target-input');
      if (!edge || !edge.sourceHandle) return null;
 
-     const sourceNode = getNode(edge.source);
-     if (!sourceNode || !sourceNode.data.template) return null;
+     const sourceNodeId = edge.source;
+     
+     // Look up the template registered by the connected node (TargetSplitter)
+     const template = templateRegistry[sourceNodeId];
+     if (!template) return null;
 
      // Parse Handle ID: "slot-bounds-!!SYMBOLS" -> "!!SYMBOLS"
-     // We accept raw names or prefixed names
      let containerName = edge.sourceHandle;
      if (containerName.startsWith('slot-bounds-')) {
          containerName = containerName.replace('slot-bounds-', '');
      }
 
-     const container = sourceNode.data.template.containers.find(c => c.name === containerName);
+     const container = template.containers.find(c => c.name === containerName);
      
      if (container) {
          return {
@@ -110,7 +73,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
      }
 
      return null;
-  }, [edges, nodes, id]);
+  }, [edges, id, templateRegistry]);
 
 
   // --------------------------------------------------------------------------
@@ -160,7 +123,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
       });
     };
 
-    const transformedLayers = transformLayers(sourceData.layers);
+    const transformedLayers = transformLayers(sourceData.layers as SerializableLayer[]);
 
     return {
       status: 'success',
@@ -197,7 +160,6 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
         }
     };
 
-    // Use requestAnimationFrame to safely schedule the update and avoid ResizeObserver loops
     frameId = requestAnimationFrame(updateNodeData);
 
     return () => {

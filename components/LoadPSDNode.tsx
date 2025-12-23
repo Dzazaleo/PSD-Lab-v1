@@ -1,7 +1,8 @@
-import React, { memo, useCallback, useState, useRef } from 'react';
+import React, { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { parsePsdFile, extractTemplateMetadata, mapLayersToContainers, getCleanLayerTree } from '../services/psdService';
 import { PSDNodeData, TemplateMetadata } from '../types';
+import { useProceduralStore } from '../store/ProceduralContext';
 
 // Sub-component for visualizing the template structure
 const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata }) => {
@@ -73,6 +74,14 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
   const [localError, setLocalError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { setNodes } = useReactFlow();
+  
+  // Connect to Procedural Store
+  const { registerPsd, registerTemplate, unregisterNode } = useProceduralStore();
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => unregisterNode(id);
+  }, [id, unregisterNode]);
 
   const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -100,9 +109,12 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       // This strips heavy image data while preserving structure for the DesignInfoNode
       const designLayers = parsedPsd.children ? getCleanLayerTree(parsedPsd.children) : [];
 
+      // REGISTER WITH STORE
+      registerPsd(id, parsedPsd);
+      registerTemplate(id, templateData);
+
       // Update the node data in the global graph state
-      // IMPORTANT: Do NOT store the full `parsedPsd` object in the state. 
-      // It is too large and circular, causing RangeError on serialization.
+      // We still keep metadata in ReactFlow for UI, but the Heavy PSD object is in the Store.
       setNodes((nodes) =>
         nodes.map((node) => {
           if (node.id === id) {
@@ -113,7 +125,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
                 fileName: file.name,
                 template: templateData,
                 validation: validationReport,
-                designLayers: designLayers,
+                designLayers: designLayers, // Keeping designLayers in data as it's used by DesignInfoNode visualization
                 error: null,
               },
             };
@@ -148,7 +160,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
     } finally {
       setIsLoading(false);
     }
-  }, [id, setNodes]);
+  }, [id, setNodes, registerPsd, registerTemplate]);
 
   const handleBoxClick = () => {
     fileInputRef.current?.click();

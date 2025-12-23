@@ -1,8 +1,9 @@
-import React, { memo, useState, useMemo } from 'react';
+import React, { memo, useState, useMemo, useEffect } from 'react';
 import { Handle, Position, NodeProps, useNodes, useEdges, Node } from 'reactflow';
 import { PSDNodeData } from '../types';
 import { createContainerContext } from '../services/psdService';
 import { usePsdResolver, ResolverStatus } from '../hooks/usePsdResolver';
+import { useProceduralStore } from '../store/ProceduralContext';
 
 interface ChannelState {
   index: number;
@@ -11,6 +12,7 @@ interface ChannelState {
   layerCount: number;
   message?: string;
   debugCode?: ResolverStatus;
+  resolvedContext?: any;
 }
 
 export const ContainerResolverNode = memo(({ id }: NodeProps) => {
@@ -20,17 +22,25 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
   const nodes = useNodes();
   const edges = useEdges();
   
+  // Store Hooks
+  const { registerResolved, unregisterNode } = useProceduralStore();
+  
   // Use specialized hook for resolution logic
   const { resolveLayer } = usePsdResolver();
 
   // 1. Retrieve Global Data Source (LoadPSDNode)
-  // Fix: We access the LoadPSDNode directly to get the template, 
-  // ensuring we have the source of truth even if intermediate nodes don't persist data.
   const loadPsdNode = nodes.find(n => n.type === 'loadPsd') as Node<PSDNodeData>;
   const designLayers = loadPsdNode?.data?.designLayers || null;
   const globalTemplate = loadPsdNode?.data?.template || null;
 
+  // Cleanup
+  useEffect(() => {
+      return () => unregisterNode(id);
+  }, [id, unregisterNode]);
+
   // 2. Compute Channel Data
+  // NOTE: 'nodes' is intentionally excluded from dependencies. We depend on 'designLayers' and 'globalTemplate'
+  // which are derived from nodes but stable. Including 'nodes' causes infinite loops with store updates.
   const channels: ChannelState[] = useMemo(() => {
     return Array.from({ length: channelCount }).map((_, index) => {
       const targetHandleId = `target-${index}`;
@@ -42,7 +52,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
         return { index, status: 'idle', layerCount: 0 };
       }
 
-      // If we are connected but have no template data yet (e.g. file not loaded)
       if (!globalTemplate) {
          return { 
              index, 
@@ -53,14 +62,10 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
          };
       }
 
-      // Identify container from the edge source handle (which carries the container name)
       const containerName = edge.sourceHandle || '';
-      
-      // Create Context to verify valid container reference
       const containerContext = createContainerContext(globalTemplate, containerName);
       
       if (!containerContext) {
-        // This usually implies a stale connection or mismatched template
         return { 
             index, 
             status: 'error', 
@@ -71,7 +76,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
       }
 
       // RESOLUTION LOGIC
-      // Uses the enhanced diagnostic hook
       const result = resolveLayer(containerContext.containerName, designLayers);
 
       // Map ResolverStatus to UI Status
@@ -101,10 +105,27 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
         containerName: containerContext.containerName,
         layerCount: childCount,
         message: result.message,
-        debugCode: result.status
+        debugCode: result.status,
+        // Include raw context data for registration
+        resolvedContext: result.layer && containerContext ? {
+            container: containerContext,
+            layers: result.layer.children || [],
+            status: 'resolved',
+            message: result.message
+        } : null
       };
     });
-  }, [channelCount, edges, nodes, designLayers, globalTemplate, id, resolveLayer]);
+  }, [channelCount, edges, designLayers, globalTemplate, id, resolveLayer]);
+
+  // 3. Register Resolved Data in Store
+  useEffect(() => {
+    channels.forEach(channel => {
+        if (channel.resolvedContext) {
+            // Register as source-{index} to match the output handle
+            registerResolved(id, `source-${channel.index}`, channel.resolvedContext as any);
+        }
+    });
+  }, [channels, id, registerResolved]);
 
   const addChannel = () => {
     setChannelCount(prev => prev + 1);
@@ -123,7 +144,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
         <span className="text-[10px] text-slate-500 font-mono">MULTI-MAPPER</span>
       </div>
 
-      {/* Warning if no design layers */}
       {!loadPsdNode && (
         <div className="bg-red-900/20 text-red-300 text-[10px] p-1 text-center border-b border-red-900/30">
           Waiting for PSD Source...
@@ -140,7 +160,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
               channel.status === 'warning' ? 'bg-orange-900/10' : ''
             }`}
           >
-            {/* Left Index Label */}
             <span 
               className="absolute left-1.5 text-[9px] font-mono text-slate-500 pointer-events-none select-none z-10" 
               style={{ top: '50%', transform: 'translateY(-50%)' }}
@@ -148,7 +167,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
               {channel.index}
             </span>
 
-            {/* Input Handle (Target) */}
             <Handle
               type="target"
               position={Position.Left}
@@ -162,7 +180,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
               style={{ top: '50%', transform: 'translateY(-50%)' }}
             />
 
-            {/* Channel UI */}
             <div className="flex-1 flex items-center justify-between px-6">
               <div className="flex items-center space-x-2 overflow-hidden">
                 {channel.status === 'idle' ? (
@@ -186,7 +203,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
               )}
             </div>
 
-            {/* Right Index Label */}
             <span 
               className="absolute right-2 text-[9px] font-mono text-slate-500 pointer-events-none select-none z-10" 
               style={{ top: '50%', transform: 'translateY(-50%)' }}
@@ -194,7 +210,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
               {channel.index}
             </span>
 
-            {/* Output Handle (Source) */}
             <Handle
               type="source"
               position={Position.Right}
@@ -208,7 +223,6 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
         ))}
       </div>
 
-      {/* Footer / Add Button */}
       <button 
         onClick={addChannel}
         className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 border-t border-slate-700 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1"

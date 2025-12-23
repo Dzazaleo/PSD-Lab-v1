@@ -1,7 +1,8 @@
-import React, { memo, useCallback, useState, useRef } from 'react';
+import React, { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { parsePsdFile, extractTemplateMetadata } from '../services/psdService';
 import { PSDNodeData, TemplateMetadata } from '../types';
+import { useProceduralStore } from '../store/ProceduralContext';
 
 const TargetTemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata }) => {
   const { canvas, containers } = metadata;
@@ -48,6 +49,13 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { setNodes } = useReactFlow();
 
+  // Connect to store
+  const { registerPsd, registerTemplate, unregisterNode } = useProceduralStore();
+
+  useEffect(() => {
+    return () => unregisterNode(id);
+  }, [id, unregisterNode]);
+
   const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -65,6 +73,10 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
       if (templateData.containers.length === 0) {
         throw new Error("INVALID TARGET: No !!TEMPLATE Group Found");
       }
+
+      // REGISTER WITH STORE
+      registerPsd(id, parsedPsd);
+      registerTemplate(id, templateData);
 
       setNodes((nodes) =>
         nodes.map((node) => {
@@ -108,7 +120,7 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
     } finally {
       setIsLoading(false);
     }
-  }, [id, setNodes]);
+  }, [id, setNodes, registerPsd, registerTemplate]);
 
   const handleBoxClick = () => fileInputRef.current?.click();
   const isLoaded = !!data.template;
@@ -129,7 +141,8 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
         <input type="file" accept=".psd" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
 
         {!isLoaded && !isLoading && (
-          <div onClick={handleBoxClick} className="group cursor-pointer border-2 border-dashed border-slate-600 hover:border-emerald-500 rounded-md p-6 flex flex-col items-center justify-center transition-colors bg-slate-800/50 hover:bg-slate-700/50">
+          <div onClick={handleBoxClick} className="group cursor-pointer border-2 border-dashed border-slate-600 hover:border-emerald-500 rounded-md p-6 flex flex-col items-center justify-center transition-colors bg-slate-800/50 hover:bg-slate-700/50"
+          >
              <svg className="w-8 h-8 text-slate-500 group-hover:text-emerald-400 mb-2 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
              </svg>
