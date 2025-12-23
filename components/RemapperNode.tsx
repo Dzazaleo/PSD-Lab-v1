@@ -7,120 +7,142 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   const edges = useEdges();
   const nodes = useNodes();
 
-  // --------------------------------------------------------------------------
-  // 1. Resolve Source Context (Content + Source Bounds)
-  // --------------------------------------------------------------------------
-  // Traces connection from 'source-input' back through ContainerResolver
-  const sourceContext = useMemo(() => {
-    const sourceEdge = edges.find(e => e.target === id && e.targetHandle === 'source-input');
-    if (!sourceEdge) return null;
-
-    const resolverNode = nodes.find(n => n.id === sourceEdge.source) as Node<PSDNodeData>;
-    if (!resolverNode) return null;
-
-    // Identify resolver channel
-    const resolverOutputHandle = sourceEdge.sourceHandle; 
-    if (!resolverOutputHandle) return null;
-
-    const channelIndex = resolverOutputHandle.replace('source-', '');
-    const resolverInputHandle = `target-${channelIndex}`;
-
-    // Trace back to TemplateSplitter to find the container name
-    const inputEdge = edges.find(e => e.target === resolverNode.id && e.targetHandle === resolverInputHandle);
-    if (!inputEdge) return null;
-
-    const containerName = inputEdge.sourceHandle;
-    if (!containerName) return null;
-
-    // Locate Data Sources
-    const splitterNode = nodes.find(n => n.id === inputEdge.source) as Node<PSDNodeData>;
-    const template = splitterNode?.data?.template;
-    const loadPsdNode = nodes.find(n => n.type === 'loadPsd') as Node<PSDNodeData>;
-    const designLayers = loadPsdNode?.data?.designLayers;
-
-    if (!template || !designLayers) return null;
-
-    // Resolve Source Container & Layers
-    const containerDef = template.containers.find(c => c.name === containerName);
-    const cleanName = containerName.replace(/^!+/, '').trim();
-    const sourceLayerGroup = designLayers.find(l => l.name === cleanName) || 
-                             designLayers.find(l => l.name.toLowerCase() === cleanName.toLowerCase());
-
-    if (!containerDef || !sourceLayerGroup) return null;
-
-    return {
-      container: containerDef,
-      layers: sourceLayerGroup.children || []
-    };
-  }, [edges, nodes, id]);
-
+  // Helper to safely get node by ID
+  const getNode = (nodeId: string) => nodes.find(n => n.id === nodeId) as Node<PSDNodeData> | undefined;
 
   // --------------------------------------------------------------------------
-  // 2. Resolve Target Context (Destination Bounds)
+  // 1. Resolve Source Data (Content + Source Bounds)
   // --------------------------------------------------------------------------
-  // Checks 'target-input' for a specific slot connection from TargetSplitter
-  const targetContext = useMemo(() => {
-    const targetEdge = edges.find(e => e.target === id && e.targetHandle === 'target-input');
-    if (!targetEdge) return null;
+  // Logic: Remapper(source-input) <--- (source-N)Resolver(target-N) <--- (ContainerName)TemplateSplitter
+  const sourceData = useMemo(() => {
+    const edge = edges.find(e => e.target === id && e.targetHandle === 'source-input');
+    if (!edge || !edge.sourceHandle) return null;
 
-    const sourceNode = nodes.find(n => n.id === targetEdge.source) as Node<PSDNodeData>;
-    const template = sourceNode?.data?.template;
-    
-    if (!sourceNode || !template) return null;
+    const sourceNode = getNode(edge.source);
+    if (!sourceNode) return null;
 
-    const handleId = targetEdge.sourceHandle || '';
+    let containerName: string | null = null;
+    let originalBounds: { x: number; y: number; w: number; h: number } | null = null;
 
-    // CASE A: Connected to a specific slot (e.g. "slot-bounds-!!SYMBOLS")
-    if (handleId.startsWith('slot-bounds-')) {
-        const containerName = handleId.replace('slot-bounds-', '');
-        const specificContainer = template.containers.find(c => c.name === containerName);
-        if (specificContainer) {
-            return {
-                mode: 'LOCKED',
-                container: specificContainer
-            };
+    // PATH A: Connection via ContainerResolver (Expected)
+    if (sourceNode.type === 'containerResolver') {
+       // Map output handle "source-X" to input handle "target-X"
+       const index = edge.sourceHandle.replace('source-', '');
+       const resolverInputHandleId = `target-${index}`;
+       
+       // Find the edge feeding the resolver at this specific index
+       const resolverInputEdge = edges.find(e => e.target === sourceNode.id && e.targetHandle === resolverInputHandleId);
+       
+       // The sourceHandle of the edge feeding the resolver IS the container name (from TemplateSplitter)
+       if (resolverInputEdge && resolverInputEdge.sourceHandle) {
+           containerName = resolverInputEdge.sourceHandle; 
+           
+           // Resolve Source Bounds from the TemplateSplitter
+           const splitterNode = getNode(resolverInputEdge.source);
+           const template = splitterNode?.data?.template;
+           if (template) {
+               const cDef = template.containers.find(c => c.name === containerName);
+               if (cDef) originalBounds = cDef.bounds;
+           }
+       }
+    } 
+    // PATH B: Direct Connection from TemplateSplitter (Fallback/Legacy)
+    else if (sourceNode.type === 'templateSplitter') {
+       containerName = edge.sourceHandle;
+       const template = sourceNode.data?.template;
+       if (template) {
+           const cDef = template.containers.find(c => c.name === containerName);
+           if (cDef) originalBounds = cDef.bounds;
+       }
+    }
+
+    if (containerName && originalBounds) {
+        // Resolve Layer Content from Global State (LoadPSDNode)
+        const loadPsdNode = nodes.find(n => n.type === 'loadPsd') as Node<PSDNodeData>;
+        const designLayers = loadPsdNode?.data?.designLayers;
+
+        if (designLayers) {
+            const cleanName = containerName.replace(/^!+/, '').trim();
+            // Try exact match then case-insensitive
+            const group = designLayers.find(l => l.name === cleanName) || 
+                          designLayers.find(l => l.name.toLowerCase() === cleanName.toLowerCase());
+            
+            if (group && group.children) {
+                return {
+                    containerName,
+                    layers: group.children,
+                    originalBounds
+                };
+            }
         }
     }
 
-    // CASE B: Fallback (Legacy or Direct Template connection)
-    // We default to the first container or require selection if we supported it, 
-    // but strict logic suggests we simply return null or the first found if ambiguous.
-    // For this strict procedural engine, we expect specific wiring.
-    return {
-        mode: 'INVALID',
-        container: null
-    };
-
+    return null;
   }, [edges, nodes, id]);
 
 
   // --------------------------------------------------------------------------
-  // 3. Transformation Logic
+  // 2. Resolve Target Data (Destination Bounds)
   // --------------------------------------------------------------------------
-  const transformationResult: TransformedPayload | null = useMemo(() => {
-    // Strict Check: Both inputs must be valid
-    if (!sourceContext || !targetContext || !targetContext.container) return null;
+  // Logic: Remapper(target-input) <--- (slot-bounds-ContainerName)TargetSplitter
+  const targetData = useMemo(() => {
+     const edge = edges.find(e => e.target === id && e.targetHandle === 'target-input');
+     if (!edge || !edge.sourceHandle) return null;
 
-    const sourceRect = sourceContext.container.bounds;
-    const targetRect = targetContext.container.bounds;
+     const sourceNode = getNode(edge.source);
+     if (!sourceNode || !sourceNode.data.template) return null;
 
-    // Calculate Uniform Fit Scale
+     // Parse Handle ID: "slot-bounds-!!SYMBOLS" -> "!!SYMBOLS"
+     // We accept raw names or prefixed names
+     let containerName = edge.sourceHandle;
+     if (containerName.startsWith('slot-bounds-')) {
+         containerName = containerName.replace('slot-bounds-', '');
+     }
+
+     const container = sourceNode.data.template.containers.find(c => c.name === containerName);
+     
+     if (container) {
+         return {
+             containerName,
+             bounds: container.bounds,
+             containerDef: container
+         };
+     }
+
+     return null;
+  }, [edges, nodes, id]);
+
+
+  // --------------------------------------------------------------------------
+  // 3. Transformation Math (The "Math" Trigger)
+  // --------------------------------------------------------------------------
+  const transformationPayload: TransformedPayload | null = useMemo(() => {
+    // strict data validation: must have both
+    if (!sourceData || !targetData) return null;
+    
+    // Safety check for geometry
+    if (!sourceData.originalBounds || !targetData.bounds) return null;
+
+    const sourceRect = sourceData.originalBounds;
+    const targetRect = targetData.bounds;
+
+    // Uniform Fit Calculation
     const ratioX = targetRect.w / sourceRect.w;
     const ratioY = targetRect.h / sourceRect.h;
     const scale = Math.min(ratioX, ratioY);
 
-    // Transform Layers
+    // Recursive Layer Transformation
     const transformLayers = (layers: SerializableLayer[]): TransformedLayer[] => {
       return layers.map(layer => {
-        // Normalize
+        // Normalize coordinates relative to source container
         const relX = (layer.coords.x - sourceRect.x) / sourceRect.w;
         const relY = (layer.coords.y - sourceRect.y) / sourceRect.h;
 
-        // Project
+        // Project to target container
         const newX = targetRect.x + (relX * targetRect.w);
         const newY = targetRect.y + (relY * targetRect.h);
 
-        // Scale
+        // Scale dimensions
         const newW = layer.coords.w * scale;
         const newH = layer.coords.h * scale;
 
@@ -138,44 +160,58 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
       });
     };
 
-    const newLayers = transformLayers(sourceContext.layers);
+    const transformedLayers = transformLayers(sourceData.layers);
 
     return {
       status: 'success',
-      sourceContainer: sourceContext.container.name,
-      targetContainer: targetContext.container.name,
-      layers: newLayers,
+      sourceContainer: sourceData.containerName,
+      targetContainer: targetData.containerName,
+      layers: transformedLayers,
       scaleFactor: scale,
       metrics: {
         source: { w: sourceRect.w, h: sourceRect.h },
         target: { w: targetRect.w, h: targetRect.h }
       }
     };
-  }, [sourceContext, targetContext]);
+  }, [sourceData, targetData]);
 
 
   // --------------------------------------------------------------------------
-  // 4. Update Node State
+  // 4. Update Node State (Side Effect with Loop Protection)
   // --------------------------------------------------------------------------
   useEffect(() => {
-    // Only update if payload changed
-    if (JSON.stringify(data.transformedPayload) !== JSON.stringify(transformationResult)) {
-        setNodes(nds => nds.map(n => {
-            if (n.id === id) {
-                return { ...n, data: { ...n.data, transformedPayload: transformationResult } };
-            }
-            return n;
-        }));
-    }
-  }, [transformationResult, id, setNodes, data.transformedPayload]);
+    let frameId: number;
+
+    const updateNodeData = () => {
+        // Compare with current data to prevent infinite loops
+        const currentPayload = data.transformedPayload;
+        const isDifferent = JSON.stringify(currentPayload) !== JSON.stringify(transformationPayload);
+
+        if (isDifferent) {
+            setNodes(nds => nds.map(n => {
+                if (n.id === id) {
+                    return { ...n, data: { ...n.data, transformedPayload: transformationPayload } };
+                }
+                return n;
+            }));
+        }
+    };
+
+    // Use requestAnimationFrame to safely schedule the update and avoid ResizeObserver loops
+    frameId = requestAnimationFrame(updateNodeData);
+
+    return () => {
+        if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [transformationPayload, id, setNodes, data.transformedPayload]);
 
 
   // --------------------------------------------------------------------------
   // 5. Render
   // --------------------------------------------------------------------------
-  const isSourceReady = !!sourceContext;
-  const isTargetReady = targetContext?.mode === 'LOCKED' && !!targetContext.container;
-  const isReady = isSourceReady && isTargetReady && !!transformationResult;
+  const isSourceReady = !!sourceData;
+  const isTargetReady = !!targetData;
+  const isReady = !!transformationPayload;
 
   return (
     <div className="min-w-[280px] bg-slate-800 rounded-lg shadow-xl border border-indigo-500/50 overflow-hidden font-sans">
@@ -186,7 +222,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
         position={Position.Left} 
         id="source-input" 
         className={`!top-10 !w-3 !h-3 !border-2 ${isSourceReady ? '!bg-indigo-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-        title="Input: Source Content Layers" 
+        title="Input: Source Content (from Resolver)" 
       />
       
       <Handle 
@@ -194,7 +230,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
         position={Position.Left} 
         id="target-input" 
         className={`!top-20 !w-3 !h-3 !border-2 ${isTargetReady ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-        title="Input: Target Slot Definition" 
+        title="Input: Target Slot (from Target Splitter)" 
       />
 
       {/* Output */}
@@ -220,46 +256,54 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
       {/* Body */}
       <div className="p-3 space-y-3">
         
-        {/* Source Status */}
+        {/* Connection Status: Source */}
         <div className="flex flex-col space-y-1">
-           <div className="flex justify-between items-center">
-             <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider">Source Content</label>
-           </div>
-           <div className={`text-xs px-2 py-1.5 rounded border ${isSourceReady ? 'bg-indigo-900/30 border-indigo-500/30 text-indigo-200' : 'bg-slate-900 border-slate-700 text-slate-500 italic'}`}>
-             {sourceContext ? sourceContext.container.name : 'Waiting for Layers...'}
+           <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider">Source Input</label>
+           <div className={`text-xs px-2 py-1.5 rounded border transition-colors ${
+             isSourceReady 
+               ? 'bg-indigo-900/30 border-indigo-500/30 text-indigo-200' 
+               : 'bg-slate-900 border-slate-700 text-slate-500 italic'
+           }`}>
+             {sourceData ? sourceData.containerName : 'Waiting for Source...'}
            </div>
         </div>
 
-        {/* Target Status */}
+        {/* Connection Status: Target */}
         <div className="flex flex-col space-y-1">
            <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider">Target Slot</label>
-           <div className={`text-xs px-2 py-1.5 rounded border ${isTargetReady ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-300' : 'bg-slate-900 border-slate-700 text-slate-500 italic'}`}>
-             {targetContext?.container ? `Slot: ${targetContext.container.name}` : 'Waiting for Slot...'}
+           <div className={`text-xs px-2 py-1.5 rounded border transition-colors ${
+             isTargetReady 
+               ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-300' 
+               : 'bg-slate-900 border-slate-700 text-slate-500 italic'
+           }`}>
+             {targetData ? targetData.containerName : 'Waiting for Target...'}
            </div>
         </div>
 
-        {/* Transformation Metrics */}
-        {transformationResult ? (
-          <div className="bg-slate-900/50 rounded p-2 border border-slate-700/50 space-y-1 mt-2">
-            <div className="flex justify-between items-center text-[10px] mb-1">
-               <span className="text-slate-400">Remapping Operation:</span>
-               <span className="font-bold text-indigo-300">{transformationResult.sourceContainer} &rarr; {transformationResult.targetContainer}</span>
-            </div>
-            <div className="w-full bg-slate-800 h-1 rounded overflow-hidden">
-               <div className="h-full bg-emerald-500" style={{ width: `${Math.min(transformationResult.scaleFactor * 100, 100)}%` }}></div>
-            </div>
-            <div className="flex justify-between items-center text-[9px] text-slate-500 pt-1">
-               <span>Scale: {transformationResult.scaleFactor.toFixed(2)}x</span>
-               <span>{Math.round(transformationResult.metrics.target.w)} x {Math.round(transformationResult.metrics.target.h)} px</span>
-            </div>
-          </div>
-        ) : (
-          (isSourceReady && isTargetReady) && (
-            <div className="text-[10px] text-red-400 italic text-center pt-2">
-              Error calculating transformation.
-            </div>
-          )
-        )}
+        {/* Status Message / Metrics */}
+        <div className="pt-2 border-t border-slate-700/50">
+           {!isReady ? (
+             <div className="flex items-center justify-center space-x-2 py-1">
+                <div className="animate-pulse w-2 h-2 rounded-full bg-orange-500"></div>
+                <span className="text-[10px] text-orange-300 italic">Waiting for connections...</span>
+             </div>
+           ) : (
+             <div className="bg-emerald-900/20 rounded p-2 border border-emerald-900/50 space-y-1">
+               <div className="flex justify-between items-center mb-1">
+                  <span className="text-[10px] text-slate-400 font-bold">REMAP READY: {transformationPayload.targetContainer}</span>
+               </div>
+               <div className="flex justify-between items-center">
+                 <span className="text-[10px] text-slate-400">Scale Factor</span>
+                 <span className="text-xs font-mono font-bold text-emerald-400">
+                    {transformationPayload.scaleFactor.toFixed(3)}x
+                 </span>
+               </div>
+               <div className="w-full bg-slate-800 h-1 rounded overflow-hidden mt-1">
+                  <div className="h-full bg-indigo-500" style={{ width: `${Math.min(transformationPayload.scaleFactor * 100, 100)}%` }}></div>
+               </div>
+             </div>
+           )}
+        </div>
 
       </div>
     </div>
