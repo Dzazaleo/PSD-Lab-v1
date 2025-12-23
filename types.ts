@@ -38,10 +38,20 @@ export interface DesignValidationReport {
   issues: ValidationIssue[];
 }
 
+export interface SerializableLayer {
+  id: string;
+  name: string;
+  type: 'layer' | 'group';
+  children?: SerializableLayer[];
+  isVisible: boolean;
+  opacity: number;
+}
+
 export interface PSDNodeData {
   fileName: string | null;
   template: TemplateMetadata | null;
   validation: DesignValidationReport | null;
+  designLayers: SerializableLayer[] | null;
   error?: string | null;
 }
 

@@ -14,6 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 
 import { LoadPSDNode } from './components/LoadPSDNode';
+import { DesignInfoNode } from './components/DesignInfoNode';
 import { PSDNodeData } from './types';
 
 const initialNodes: Node<PSDNodeData>[] = [
@@ -21,13 +22,23 @@ const initialNodes: Node<PSDNodeData>[] = [
     id: 'node-1',
     type: 'loadPsd',
     position: { x: 100, y: 100 },
-    data: { fileName: null, template: null, validation: null },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
   },
+  {
+    id: 'node-2',
+    type: 'designInfo',
+    position: { x: 500, y: 100 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+];
+
+const initialEdges: Edge[] = [
+    { id: 'e1-2', source: 'node-1', target: 'node-2' }
 ];
 
 const App: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -37,6 +48,7 @@ const App: React.FC = () => {
   // Register custom node types
   const nodeTypes = useMemo(() => ({
     loadPsd: LoadPSDNode,
+    designInfo: DesignInfoNode,
   }), []);
 
   return (

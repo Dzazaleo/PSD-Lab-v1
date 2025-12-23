@@ -1,5 +1,5 @@
-import { readPsd, Psd, ReadOptions } from 'ag-psd';
-import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue } from '../types';
+import { readPsd, Psd, ReadOptions, Layer } from 'ag-psd';
+import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue, SerializableLayer } from '../types';
 
 export interface PSDParseOptions {
   /**
@@ -201,4 +201,38 @@ export const mapLayersToContainers = (psd: Psd, template: TemplateMetadata): Des
     isValid: issues.length === 0,
     issues
   };
+};
+
+/**
+ * Recursively maps ag-psd Layers to a simplified SerializableLayer structure, 
+ * filtering out the '!!TEMPLATE' group and stripping heavy pixel data.
+ * @param layers The array of layers to process.
+ * @returns An array of lightweight SerializableLayer objects.
+ */
+export const getCleanLayerTree = (layers: Layer[]): SerializableLayer[] => {
+  const nodes: SerializableLayer[] = [];
+  
+  layers.forEach((child, index) => {
+    // Explicitly filter out the !!TEMPLATE group
+    if (child.name === '!!TEMPLATE') {
+      return;
+    }
+
+    const node: SerializableLayer = {
+      // Use a combination of name and index for ID to ensure uniqueness in the tree view
+      id: `${child.name || 'layer'}-${index}-${Math.random().toString(36).substr(2, 9)}`,
+      name: child.name || 'Untitled',
+      type: child.children ? 'group' : 'layer',
+      isVisible: child.hidden !== true, // ag-psd uses 'hidden' property, we map to isVisible
+      opacity: child.opacity != null ? child.opacity / 255 : 1, // ag-psd opacity is 0-255
+    };
+
+    if (child.children) {
+      node.children = getCleanLayerTree(child.children);
+    }
+
+    nodes.push(node);
+  });
+
+  return nodes;
 };

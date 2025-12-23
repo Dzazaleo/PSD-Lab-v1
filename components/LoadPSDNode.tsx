@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useState, useRef } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { parsePsdFile, extractTemplateMetadata, mapLayersToContainers } from '../services/psdService';
+import { parsePsdFile, extractTemplateMetadata, mapLayersToContainers, getCleanLayerTree } from '../services/psdService';
 import { PSDNodeData, TemplateMetadata } from '../types';
 
 // Sub-component for visualizing the template structure
@@ -95,6 +95,9 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       // Validate procedural rules
       const validationReport = mapLayersToContainers(parsedPsd, templateData);
 
+      // Extract clean visual design layer hierarchy
+      const designLayers = parsedPsd.children ? getCleanLayerTree(parsedPsd.children) : [];
+
       // Update the node data in the global graph state
       // IMPORTANT: Do NOT store the full `parsedPsd` object in the state. 
       // It is too large and circular, causing RangeError on serialization.
@@ -108,6 +111,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
                 fileName: file.name,
                 template: templateData,
                 validation: validationReport,
+                designLayers: designLayers,
                 error: null,
               },
             };
@@ -131,6 +135,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
                 fileName: file.name,
                 template: null,
                 validation: null,
+                designLayers: null,
                 error: errorMessage,
               },
             };
