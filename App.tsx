@@ -19,6 +19,7 @@ import { TargetSplitterNode } from './components/TargetSplitterNode';
 import { DesignInfoNode } from './components/DesignInfoNode';
 import { TemplateSplitterNode } from './components/TemplateSplitterNode';
 import { ContainerResolverNode } from './components/ContainerResolverNode';
+import { RemapperNode } from './components/RemapperNode';
 import { PSDNodeData } from './types';
 
 const initialNodes: Node<PSDNodeData>[] = [
@@ -31,7 +32,7 @@ const initialNodes: Node<PSDNodeData>[] = [
   {
     id: 'node-target-1',
     type: 'targetTemplate',
-    position: { x: 100, y: 400 },
+    position: { x: 100, y: 550 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
@@ -53,9 +54,15 @@ const initialNodes: Node<PSDNodeData>[] = [
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
+    id: 'node-remapper-1',
+    type: 'remapper',
+    position: { x: 1300, y: 550 },
+    data: { fileName: null, template: null, validation: null, designLayers: null, remapperConfig: { targetContainerName: null } },
+  },
+  {
     id: 'node-5',
     type: 'targetSplitter',
-    position: { x: 1300, y: 550 },
+    position: { x: 1700, y: 550 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
 ];
@@ -87,13 +94,23 @@ const App: React.FC = () => {
                return;
              }
           } else {
-             // Constraint: Dynamic slots expect a ContainerResolverNode (Resolved Content)
-             // This prevents raw TemplateMetadata or other types from connecting to slots
-             if (sourceNode.type !== 'containerResolver') {
-               console.warn("Invalid Connection: Target Splitter 'Content Slots' require a Container Resolver source.");
+             // Constraint: Dynamic slots now expect a RemapperNode (Transformed Payload)
+             // Or ContainerResolver if bypassing remapping (legacy support, or simple copy)
+             // But strict pipeline suggests Remapper.
+             if (sourceNode.type !== 'remapper' && sourceNode.type !== 'containerResolver') {
+               console.warn("Invalid Connection: Target Slots require a Remapper or Resolver source.");
                return;
              }
           }
+        }
+        
+        // Remapper Validation Rules
+        if (targetNode.type === 'remapper') {
+            if (params.targetHandle === 'template-input') {
+                if (sourceNode.type !== 'targetTemplate') return;
+            } else if (params.targetHandle === 'source-input') {
+                if (sourceNode.type !== 'containerResolver') return;
+            }
         }
       }
 
@@ -123,6 +140,7 @@ const App: React.FC = () => {
     designInfo: DesignInfoNode,
     templateSplitter: TemplateSplitterNode,
     containerResolver: ContainerResolverNode,
+    remapper: RemapperNode,
   }), []);
 
   return (

@@ -227,6 +227,7 @@ export const mapLayersToContainers = (psd: Psd, template: TemplateMetadata): Des
 /**
  * Recursively maps ag-psd Layers to a simplified SerializableLayer structure, 
  * filtering out the '!!TEMPLATE' group and stripping heavy pixel data.
+ * Now includes coordinate bounds.
  * @param layers The array of layers to process.
  * @returns An array of lightweight SerializableLayer objects.
  */
@@ -239,6 +240,11 @@ export const getCleanLayerTree = (layers: Layer[]): SerializableLayer[] => {
       return;
     }
 
+    const top = child.top ?? 0;
+    const left = child.left ?? 0;
+    const bottom = child.bottom ?? 0;
+    const right = child.right ?? 0;
+
     const node: SerializableLayer = {
       // Use a combination of name and index for ID to ensure uniqueness in the tree view
       id: `${child.name || 'layer'}-${index}-${Math.random().toString(36).substr(2, 9)}`,
@@ -246,6 +252,12 @@ export const getCleanLayerTree = (layers: Layer[]): SerializableLayer[] => {
       type: child.children ? 'group' : 'layer',
       isVisible: child.hidden !== true, // ag-psd uses 'hidden' property, we map to isVisible
       opacity: child.opacity != null ? child.opacity / 255 : 1, // ag-psd opacity is 0-255
+      coords: {
+        x: left,
+        y: top,
+        w: right - left,
+        h: bottom - top
+      }
     };
 
     if (child.children) {

@@ -40,10 +40,37 @@ export interface ContainerContext {
   };
 }
 
+export interface SerializableLayer {
+  id: string;
+  name: string;
+  type: 'layer' | 'group';
+  children?: SerializableLayer[];
+  isVisible: boolean;
+  opacity: number;
+  coords: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+}
+
+export type RemapStrategy = 'STRETCH' | 'UNIFORM_FIT' | 'UNIFORM_FILL' | 'NONE';
+
+export interface TransformedLayer extends SerializableLayer {
+  transform: {
+    scaleX: number;
+    scaleY: number;
+    offsetX: number;
+    offsetY: number;
+  };
+  children?: TransformedLayer[];
+}
+
 export interface MappingContext {
   container: ContainerContext;
-  layers: SerializableLayer[];
-  status: 'resolved' | 'empty';
+  layers: SerializableLayer[] | TransformedLayer[];
+  status: 'resolved' | 'empty' | 'transformed';
   message?: string;
 }
 
@@ -59,15 +86,6 @@ export interface DesignValidationReport {
   issues: ValidationIssue[];
 }
 
-export interface SerializableLayer {
-  id: string;
-  name: string;
-  type: 'layer' | 'group';
-  children?: SerializableLayer[];
-  isVisible: boolean;
-  opacity: number;
-}
-
 export interface TargetAssembly {
   targetDimensions: {
     width: number;
@@ -80,6 +98,23 @@ export interface TargetAssembly {
   }[];
 }
 
+export interface TransformedPayload {
+  status: 'success' | 'error' | 'idle';
+  sourceContainer: string;
+  targetContainer: string;
+  layers: TransformedLayer[];
+  scaleFactor: number;
+  metrics: {
+    source: { w: number, h: number };
+    target: { w: number, h: number };
+  };
+}
+
+export interface RemapperConfig {
+  targetContainerName: string | null;
+  strategy?: RemapStrategy;
+}
+
 export interface PSDNodeData {
   fileName: string | null;
   template: TemplateMetadata | null;
@@ -88,6 +123,8 @@ export interface PSDNodeData {
   containerContext?: ContainerContext | null;
   mappingContext?: MappingContext | null; // For downstream nodes consuming resolver output
   targetAssembly?: TargetAssembly | null; // For TargetSplitterNode output
+  remapperConfig?: RemapperConfig | null; // For RemapperNode state
+  transformedPayload?: TransformedPayload | null; // For RemapperNode output
   error?: string | null;
 }
 
