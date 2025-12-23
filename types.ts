@@ -68,6 +68,18 @@ export interface SerializableLayer {
   opacity: number;
 }
 
+export interface TargetAssembly {
+  targetDimensions: {
+    width: number;
+    height: number;
+  };
+  slots: {
+    containerName: string;
+    isFilled: boolean;
+    assignedLayerCount: number;
+  }[];
+}
+
 export interface PSDNodeData {
   fileName: string | null;
   template: TemplateMetadata | null;
@@ -75,6 +87,7 @@ export interface PSDNodeData {
   designLayers: SerializableLayer[] | null;
   containerContext?: ContainerContext | null;
   mappingContext?: MappingContext | null; // For downstream nodes consuming resolver output
+  targetAssembly?: TargetAssembly | null; // For TargetSplitterNode output
   error?: string | null;
 }
 
