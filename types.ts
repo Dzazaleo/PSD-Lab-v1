@@ -3,6 +3,7 @@ import { Psd } from 'ag-psd';
 export interface ContainerDefinition {
   id: string;
   name: string;
+  originalName: string;
   bounds: {
     x: number;
     y: number;
@@ -25,10 +26,22 @@ export interface TemplateMetadata {
   containers: ContainerDefinition[];
 }
 
+export interface ValidationIssue {
+  layerName: string;
+  containerName: string;
+  type: 'PROCEDURAL_VIOLATION';
+  message: string;
+}
+
+export interface DesignValidationReport {
+  isValid: boolean;
+  issues: ValidationIssue[];
+}
+
 export interface PSDNodeData {
   fileName: string | null;
-  psd: Psd | null;
   template: TemplateMetadata | null;
+  validation: DesignValidationReport | null;
   error?: string | null;
 }
 

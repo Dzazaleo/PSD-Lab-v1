@@ -21,7 +21,7 @@ const initialNodes: Node<PSDNodeData>[] = [
     id: 'node-1',
     type: 'loadPsd',
     position: { x: 100, y: 100 },
-    data: { fileName: null, psd: null, template: null },
+    data: { fileName: null, template: null, validation: null },
   },
 ];
 

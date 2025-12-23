@@ -1,5 +1,5 @@
 import { readPsd, Psd, ReadOptions } from 'ag-psd';
-import { TemplateMetadata, ContainerDefinition } from '../types';
+import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue } from '../types';
 
 export interface PSDParseOptions {
   /**
@@ -118,7 +118,8 @@ export const extractTemplateMetadata = (psd: Psd): TemplateMetadata => {
 
       containers.push({
         id: `container-${index}-${cleanName.replace(/\s+/g, '_')}`,
-        name: rawName, // Keep original name with !! for identification if needed, or clean it. Keeping raw allows better color coding if dependent on tags.
+        name: cleanName,
+        originalName: rawName,
         bounds: {
           x: left,
           y: top,
@@ -141,5 +142,63 @@ export const extractTemplateMetadata = (psd: Psd): TemplateMetadata => {
       height: canvasHeight
     },
     containers
+  };
+};
+
+/**
+ * Validates 'Design' layers against the 'Template' containers.
+ * Design groups (e.g. SYMBOLS) are checked against containers of the same name (e.g. !!SYMBOLS).
+ * Any layer within a design group must be fully contained within the container bounds.
+ */
+export const mapLayersToContainers = (psd: Psd, template: TemplateMetadata): DesignValidationReport => {
+  const issues: ValidationIssue[] = [];
+  const containerMap = new Map<string, ContainerDefinition>();
+  
+  // Index containers by name (e.g. "SYMBOLS" derived from "!!SYMBOLS")
+  template.containers.forEach(c => {
+    containerMap.set(c.name, c);
+  });
+
+  psd.children?.forEach(group => {
+    // Skip the template group itself
+    if (group.name === '!!TEMPLATE') return;
+    
+    // Check if this group name matches a known container
+    if (group.name && containerMap.has(group.name)) {
+        const container = containerMap.get(group.name)!;
+        
+        // Validate children of this design group
+        group.children?.forEach(layer => {
+            // Check if layer has valid coordinates
+            if (typeof layer.top === 'number' && typeof layer.left === 'number' && 
+                typeof layer.bottom === 'number' && typeof layer.right === 'number') {
+                
+                // Calculate container boundaries
+                const containerRight = container.bounds.x + container.bounds.w;
+                const containerBottom = container.bounds.y + container.bounds.h;
+                
+                // Check if layer exceeds container bounds
+                const isViolation = 
+                    layer.left < container.bounds.x ||
+                    layer.top < container.bounds.y ||
+                    layer.right > containerRight ||
+                    layer.bottom > containerBottom;
+                    
+                if (isViolation) {
+                    issues.push({
+                        layerName: layer.name || 'Untitled Layer',
+                        containerName: container.name,
+                        type: 'PROCEDURAL_VIOLATION',
+                        message: `Layer '${layer.name}' extends outside '${container.name}' container.`
+                    });
+                }
+            }
+        });
+    }
+  });
+
+  return {
+    isValid: issues.length === 0,
+    issues
   };
 };

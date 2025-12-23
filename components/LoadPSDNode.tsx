@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useState, useRef } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { parsePsdFile, extractTemplateMetadata } from '../services/psdService';
+import { parsePsdFile, extractTemplateMetadata, mapLayersToContainers } from '../services/psdService';
 import { PSDNodeData, TemplateMetadata } from '../types';
 
 // Sub-component for visualizing the template structure
@@ -10,29 +10,33 @@ const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata })
   // Calculate aspect ratio for the container div
   const aspectRatio = canvas.height / canvas.width;
   
-  const getContainerStyle = (name: string) => {
-    // Check name for prefixes to determine color coding
-    if (name.includes('BG')) {
+  // w-56 is 224px in Tailwind
+  const PREVIEW_WIDTH = 224;
+  const previewHeight = PREVIEW_WIDTH * aspectRatio;
+
+  const getContainerStyle = (originalName: string) => {
+    // Check original name (with !!) for prefixes to determine color coding
+    if (originalName.includes('BG')) {
       return 'border-purple-500 bg-purple-500/20 text-purple-200';
-    } else if (name.includes('SYMBOLS')) {
+    } else if (originalName.includes('SYMBOLS')) {
       return 'border-orange-500 bg-orange-500/20 text-orange-200';
-    } else if (name.includes('COUNTERS')) {
+    } else if (originalName.includes('COUNTERS')) {
       return 'border-blue-500 bg-blue-500/20 text-blue-200';
     }
     return 'border-slate-500 bg-slate-500/10 text-slate-300';
   };
 
   return (
-    <div className="w-full mt-2">
-      <div className="flex justify-between items-end mb-1">
+    <div className="w-full mt-2 flex flex-col items-center">
+      <div className="w-full flex justify-between items-end mb-1 px-1">
         <span className="text-[10px] uppercase text-slate-500 font-semibold tracking-wider">Template Preview</span>
         <span className="text-[9px] text-slate-600">{canvas.width} x {canvas.height}</span>
       </div>
       
-      {/* Canvas container */}
+      {/* Canvas container with fixed width of 224px (w-56) and calculated height */}
       <div 
-        className="relative w-full bg-black/40 border border-slate-700 rounded overflow-hidden"
-        style={{ paddingBottom: `${aspectRatio * 100}%` }}
+        className="relative w-56 bg-black/40 border border-slate-700 rounded overflow-hidden shadow-sm"
+        style={{ height: `${previewHeight}px` }}
       >
         <div className="absolute inset-0">
           {containers.length === 0 && (
@@ -44,7 +48,7 @@ const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata })
           {containers.map((container) => (
             <div
               key={container.id}
-              className={`absolute border flex flex-col justify-start items-start overflow-hidden transition-opacity hover:opacity-100 opacity-80 ${getContainerStyle(container.name)}`}
+              className={`absolute border flex flex-col justify-start items-start overflow-hidden transition-opacity hover:opacity-100 opacity-80 ${getContainerStyle(container.originalName)}`}
               style={{
                 top: `${container.normalized.y * 100}%`,
                 left: `${container.normalized.x * 100}%`,
@@ -53,8 +57,8 @@ const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata })
               }}
               title={`${container.name} (${container.bounds.w}x${container.bounds.h})`}
             >
-              <div className="px-1 py-0.5 bg-black/50 text-[8px] whitespace-nowrap truncate w-full">
-                {container.name.replace(/^!!/, '')}
+              <div className="px-1 py-0.5 bg-black/50 text-[8px] whitespace-nowrap truncate w-full leading-none">
+                {container.name}
               </div>
             </div>
           ))}
@@ -82,12 +86,18 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       console.log(`Parsing file: ${file.name}...`);
       const parsedPsd = await parsePsdFile(file);
       
-      console.log('Parsed PSD Structure:', parsedPsd);
+      // Log simple dimensions instead of the full object to prevent console freezing
+      console.log(`Parsed PSD: ${parsedPsd.width}x${parsedPsd.height}, children: ${parsedPsd.children?.length}`);
 
       // Extract template metadata
       const templateData = extractTemplateMetadata(parsedPsd);
+      
+      // Validate procedural rules
+      const validationReport = mapLayersToContainers(parsedPsd, templateData);
 
       // Update the node data in the global graph state
+      // IMPORTANT: Do NOT store the full `parsedPsd` object in the state. 
+      // It is too large and circular, causing RangeError on serialization.
       setNodes((nodes) =>
         nodes.map((node) => {
           if (node.id === id) {
@@ -96,8 +106,8 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
               data: {
                 ...node.data,
                 fileName: file.name,
-                psd: parsedPsd,
                 template: templateData,
+                validation: validationReport,
                 error: null,
               },
             };
@@ -108,7 +118,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to parse PSD';
       setLocalError(errorMessage);
-      console.error(err);
+      console.error("PSD processing error:", err);
       
       // Update node with error state
       setNodes((nodes) =>
@@ -119,8 +129,8 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
               data: {
                 ...node.data,
                 fileName: file.name,
-                psd: null,
                 template: null,
+                validation: null,
                 error: errorMessage,
               },
             };
@@ -136,6 +146,8 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
   const handleBoxClick = () => {
     fileInputRef.current?.click();
   };
+
+  const isLoaded = !!data.template;
 
   return (
     <div className="w-72 bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans">
@@ -159,7 +171,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
           onChange={handleFileChange}
         />
 
-        {!data.psd && !isLoading && (
+        {!isLoaded && !isLoading && (
           <div 
             onClick={handleBoxClick}
             className="group cursor-pointer border-2 border-dashed border-slate-600 hover:border-blue-500 rounded-md p-6 flex flex-col items-center justify-center transition-colors bg-slate-800/50 hover:bg-slate-700/50"
@@ -183,7 +195,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
           </div>
         )}
 
-        {data.psd && !isLoading && (
+        {isLoaded && !isLoading && (
           <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
             <div className="flex items-center space-x-2 mb-3">
               <div className="bg-green-500/20 text-green-400 p-1 rounded-full shrink-0">
@@ -197,6 +209,25 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
             </div>
             
             {data.template && <TemplatePreview metadata={data.template} />}
+
+            {/* Validation Report */}
+            {data.validation && (
+              <div className={`mt-3 p-2 rounded border text-[10px] ${data.validation.isValid ? 'border-green-800 bg-green-900/20 text-green-300' : 'border-orange-800 bg-orange-900/20 text-orange-200'}`}>
+                <div className="flex items-center space-x-1 mb-1">
+                  <span className="font-bold uppercase tracking-wider">{data.validation.isValid ? 'Structure Valid' : 'Violations Detected'}</span>
+                </div>
+                {!data.validation.isValid && (
+                  <ul className="list-disc pl-3 space-y-0.5 opacity-90">
+                    {data.validation.issues.slice(0, 3).map((issue, i) => (
+                      <li key={i} className="leading-tight">{issue.message}</li>
+                    ))}
+                    {data.validation.issues.length > 3 && (
+                      <li className="italic text-orange-400">...and {data.validation.issues.length - 3} more</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
             
             <div className="flex justify-end mt-2">
                 <button 
@@ -228,8 +259,8 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
         type="source"
         position={Position.Right}
         id="psd-output"
-        isConnectable={!!data.psd}
-        className={`w-3 h-3 border-2 ${!!data.psd ? 'bg-blue-500 border-white' : 'bg-slate-600 border-slate-400'}`}
+        isConnectable={isLoaded}
+        className={`w-3 h-3 border-2 ${isLoaded ? 'bg-blue-500 border-white' : 'bg-slate-600 border-slate-400'}`}
       />
     </div>
   );
