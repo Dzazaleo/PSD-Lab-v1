@@ -26,6 +26,27 @@ export interface TemplateMetadata {
   containers: ContainerDefinition[];
 }
 
+export interface ContainerContext {
+  containerName: string;
+  bounds: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  canvasDimensions: {
+    w: number;
+    h: number;
+  };
+}
+
+export interface MappingContext {
+  container: ContainerContext;
+  layers: SerializableLayer[];
+  status: 'resolved' | 'empty';
+  message?: string;
+}
+
 export interface ValidationIssue {
   layerName: string;
   containerName: string;
@@ -52,6 +73,8 @@ export interface PSDNodeData {
   template: TemplateMetadata | null;
   validation: DesignValidationReport | null;
   designLayers: SerializableLayer[] | null;
+  containerContext?: ContainerContext | null;
+  mappingContext?: MappingContext | null; // For downstream nodes consuming resolver output
   error?: string | null;
 }
 

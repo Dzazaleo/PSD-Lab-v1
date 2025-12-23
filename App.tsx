@@ -15,6 +15,8 @@ import ReactFlow, {
 
 import { LoadPSDNode } from './components/LoadPSDNode';
 import { DesignInfoNode } from './components/DesignInfoNode';
+import { TemplateSplitterNode } from './components/TemplateSplitterNode';
+import { ContainerResolverNode } from './components/ContainerResolverNode';
 import { PSDNodeData } from './types';
 
 const initialNodes: Node<PSDNodeData>[] = [
@@ -30,10 +32,23 @@ const initialNodes: Node<PSDNodeData>[] = [
     position: { x: 500, y: 100 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
+  {
+    id: 'node-3',
+    type: 'templateSplitter',
+    position: { x: 500, y: 550 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+  {
+    id: 'node-4',
+    type: 'containerResolver',
+    position: { x: 900, y: 550 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
 ];
 
 const initialEdges: Edge[] = [
-    { id: 'e1-2', source: 'node-1', target: 'node-2' }
+    { id: 'e1-2', source: 'node-1', target: 'node-2' },
+    { id: 'e1-3', source: 'node-1', target: 'node-3' }
 ];
 
 const App: React.FC = () => {
@@ -49,6 +64,8 @@ const App: React.FC = () => {
   const nodeTypes = useMemo(() => ({
     loadPsd: LoadPSDNode,
     designInfo: DesignInfoNode,
+    templateSplitter: TemplateSplitterNode,
+    containerResolver: ContainerResolverNode,
   }), []);
 
   return (

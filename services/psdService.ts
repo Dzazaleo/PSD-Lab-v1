@@ -1,5 +1,5 @@
 import { readPsd, Psd, ReadOptions, Layer } from 'ag-psd';
-import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue, SerializableLayer } from '../types';
+import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue, SerializableLayer, ContainerContext } from '../types';
 
 export interface PSDParseOptions {
   /**
@@ -142,6 +142,27 @@ export const extractTemplateMetadata = (psd: Psd): TemplateMetadata => {
       height: canvasHeight
     },
     containers
+  };
+};
+
+/**
+ * Creates a scoped ContainerContext object for a specific container.
+ * Used by downstream nodes to get context from the TemplateSplitterNode.
+ */
+export const createContainerContext = (template: TemplateMetadata, containerName: string): ContainerContext | null => {
+  const container = template.containers.find(c => c.name === containerName);
+  
+  if (!container) {
+    return null;
+  }
+
+  return {
+    containerName: container.name,
+    bounds: container.bounds,
+    canvasDimensions: {
+      w: template.canvas.width,
+      h: template.canvas.height
+    }
   };
 };
 

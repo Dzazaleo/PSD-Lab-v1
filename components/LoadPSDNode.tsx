@@ -90,12 +90,14 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       console.log(`Parsed PSD: ${parsedPsd.width}x${parsedPsd.height}, children: ${parsedPsd.children?.length}`);
 
       // Extract template metadata
+      // This object is lightweight and serializable
       const templateData = extractTemplateMetadata(parsedPsd);
       
       // Validate procedural rules
       const validationReport = mapLayersToContainers(parsedPsd, templateData);
 
       // Extract clean visual design layer hierarchy
+      // This strips heavy image data while preserving structure for the DesignInfoNode
       const designLayers = parsedPsd.children ? getCleanLayerTree(parsedPsd.children) : [];
 
       // Update the node data in the global graph state
@@ -260,12 +262,14 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       </div>
 
       {/* Output Handle */}
+      {/* Defined to output Serializable PSD Node Data */}
       <Handle
         type="source"
         position={Position.Right}
         id="psd-output"
         isConnectable={isLoaded}
-        className={`w-3 h-3 border-2 ${isLoaded ? 'bg-blue-500 border-white' : 'bg-slate-600 border-slate-400'}`}
+        title="Output: Serializable Template Metadata & Design Layers"
+        className={`w-3 h-3 border-2 transition-colors duration-300 ${isLoaded ? 'bg-blue-500 border-white hover:bg-blue-400' : 'bg-slate-600 border-slate-400'}`}
       />
     </div>
   );
