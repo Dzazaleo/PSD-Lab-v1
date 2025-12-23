@@ -12,7 +12,6 @@ import ReactFlow, {
   BackgroundVariant,
   ReactFlowProvider,
 } from 'reactflow';
-import 'reactflow/dist/style.css';
 
 import { LoadPSDNode } from './components/LoadPSDNode';
 import { PSDNodeData } from './types';
