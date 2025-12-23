@@ -90,7 +90,7 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
                            : 'bg-slate-900/30 border-slate-700/50'
                        }`}
                      >
-                       {/* Input Handle for specific slot */}
+                       {/* Input Handle for specific slot (Assembly In) */}
                        <Handle
                          type="target"
                          position={Position.Left}
@@ -103,7 +103,7 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
                          style={{ top: '50%', transform: 'translateY(-50%)' }}
                        />
 
-                       <div className="flex flex-col leading-tight overflow-hidden w-full">
+                       <div className="flex flex-col leading-tight overflow-hidden w-full mr-4">
                           <span className={`text-xs font-medium truncate ${isFilled ? 'text-emerald-300' : 'text-slate-400'}`}>
                             {container.name}
                           </span>
@@ -112,9 +112,15 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
                           </span>
                        </div>
 
-                       {isFilled && (
-                         <div className="ml-2 w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                       )}
+                       {/* Output Handle for Bounds (Coords Out) */}
+                       <Handle
+                         type="source"
+                         position={Position.Right}
+                         id={`slot-bounds-${container.name}`}
+                         className={`!w-3 !h-3 !-right-1.5 transition-colors duration-300 !bg-emerald-500 !border-white hover:!bg-emerald-400`}
+                         style={{ top: '50%', transform: 'translateY(-50%)' }}
+                         title={`Export Bounds: ${container.name}`}
+                       />
                      </div>
                    );
                  })
