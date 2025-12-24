@@ -1,6 +1,92 @@
 import { readPsd, writePsd, Psd, ReadOptions, WriteOptions, Layer } from 'ag-psd';
 import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue, SerializableLayer, ContainerContext } from '../types';
 
+// --- Procedural Palette & Theme Logic ---
+
+interface PaletteTheme {
+  name: string;
+  border: string;
+  bg: string;
+  text: string;
+  dot: string; // Added for UI elements requiring a solid accent
+}
+
+export const CONTAINER_PALETTE: PaletteTheme[] = [
+  // 1. Purple (Legacy: BG)
+  { name: 'Purple', border: 'border-purple-500', bg: 'bg-purple-500/20', text: 'text-purple-200', dot: 'bg-purple-400' },
+  // 2. Orange (Legacy: SYMBOLS)
+  { name: 'Orange', border: 'border-orange-500', bg: 'bg-orange-500/20', text: 'text-orange-200', dot: 'bg-orange-400' },
+  // 3. Blue (Legacy: COUNTERS)
+  { name: 'Blue', border: 'border-blue-500', bg: 'bg-blue-500/20', text: 'text-blue-200', dot: 'bg-blue-400' },
+  // 4. Pink
+  { name: 'Pink', border: 'border-pink-500', bg: 'bg-pink-500/20', text: 'text-pink-200', dot: 'bg-pink-400' },
+  // 5. Teal
+  { name: 'Teal', border: 'border-teal-500', bg: 'bg-teal-500/20', text: 'text-teal-200', dot: 'bg-teal-400' },
+  // 6. Amber
+  { name: 'Amber', border: 'border-amber-500', bg: 'bg-amber-500/20', text: 'text-amber-200', dot: 'bg-amber-400' },
+  // 7. Rose
+  { name: 'Rose', border: 'border-rose-500', bg: 'bg-rose-500/20', text: 'text-rose-200', dot: 'bg-rose-400' },
+  // 8. Indigo
+  { name: 'Indigo', border: 'border-indigo-500', bg: 'bg-indigo-500/20', text: 'text-indigo-200', dot: 'bg-indigo-400' },
+];
+
+/**
+ * Returns a consistent Tailwind theme string based on container name or index.
+ * Prioritizes semantic naming conventions (BG, SYMBOLS) before falling back to index-based rotation.
+ * 
+ * @param name The container name (e.g., "BG Layer")
+ * @param index The deterministic index of the container
+ * @returns A string of tailwind classes (border, bg, text)
+ */
+export const getSemanticTheme = (name: string, index: number): string => {
+  const upperName = name.toUpperCase();
+  let theme: PaletteTheme | undefined;
+
+  // 1. Semantic Matching (Legacy/Priority)
+  if (upperName.includes('BG')) {
+    theme = CONTAINER_PALETTE.find(t => t.name === 'Purple');
+  } else if (upperName.includes('SYMBOL')) {
+    theme = CONTAINER_PALETTE.find(t => t.name === 'Orange');
+  } else if (upperName.includes('COUNTER')) {
+    theme = CONTAINER_PALETTE.find(t => t.name === 'Blue');
+  }
+
+  // 2. Index Fallback (Procedural)
+  if (!theme) {
+    const paletteIndex = index % CONTAINER_PALETTE.length;
+    theme = CONTAINER_PALETTE[paletteIndex];
+  }
+
+  // 3. Return constructed class string
+  // Default fallback if something goes wrong (shouldn't happen with math)
+  const safeTheme = theme || CONTAINER_PALETTE[0];
+  
+  return `${safeTheme.border} ${safeTheme.bg} ${safeTheme.text}`;
+};
+
+/**
+ * Retrieves the full theme object if structured access (like dot color) is needed.
+ */
+export const getSemanticThemeObject = (name: string, index: number): PaletteTheme => {
+    const upperName = name.toUpperCase();
+    let theme: PaletteTheme | undefined;
+  
+    if (upperName.includes('BG')) {
+      theme = CONTAINER_PALETTE.find(t => t.name === 'Purple');
+    } else if (upperName.includes('SYMBOL')) {
+      theme = CONTAINER_PALETTE.find(t => t.name === 'Orange');
+    } else if (upperName.includes('COUNTER')) {
+      theme = CONTAINER_PALETTE.find(t => t.name === 'Blue');
+    }
+  
+    if (!theme) {
+      const paletteIndex = index % CONTAINER_PALETTE.length;
+      theme = CONTAINER_PALETTE[paletteIndex];
+    }
+  
+    return theme || CONTAINER_PALETTE[0];
+};
+
 export interface PSDParseOptions {
   /**
    * Whether to skip parsing layer image data.
@@ -241,90 +327,88 @@ export const getCleanLayerTree = (layers: Layer[], path: string = ''): Serializa
     }
 
     // Construct deterministic path: "parentIndex.childIndex"
+    // Use the index within the full layers array from ag-psd
     const currentPath = path ? `${path}.${index}` : `${index}`;
 
     const top = child.top ?? 0;
     const left = child.left ?? 0;
     const bottom = child.bottom ?? 0;
     const right = child.right ?? 0;
-
+    
+    const width = right - left;
+    const height = bottom - top;
+    
     const node: SerializableLayer = {
-      // Deterministic ID based on traversal path
-      id: `layer-${currentPath}`,
-      name: child.name || 'Untitled',
+      id: currentPath,
+      name: child.name || `Layer ${index}`,
       type: child.children ? 'group' : 'layer',
-      isVisible: child.hidden !== true, 
-      opacity: child.opacity != null ? child.opacity / 255 : 1, 
+      isVisible: !child.hidden,
+      opacity: (child.opacity ?? 255) / 255, // ag-psd 0-255 -> 0-1
       coords: {
         x: left,
         y: top,
-        w: right - left,
-        h: bottom - top
-      }
+        w: width,
+        h: height
+      },
+      // Recursion
+      children: child.children ? getCleanLayerTree(child.children, currentPath) : undefined
     };
-
-    if (child.children) {
-      node.children = getCleanLayerTree(child.children, currentPath);
-    }
-
+    
     nodes.push(node);
   });
-
+  
   return nodes;
 };
 
 /**
- * Finds a heavy binary Layer object in the original PSD using the deterministic path ID.
+ * Finds a heavy `ag-psd` Layer object in the raw PSD structure using a deterministic path ID.
+ * The path ID (e.g., "0.3.1") corresponds to the indices in the `children` arrays.
+ * 
+ * @param psd The raw parsed PSD object.
+ * @param pathId The dot-separated index path (e.g., "0.3.1").
+ * @returns The matching Layer object or null if not found.
  */
-export const findLayerByPath = (psd: Psd, layerId: string): Layer | null => {
-  // ID Format: layer-0.1.3
-  const pathStr = layerId.replace('layer-', '');
-  if (!pathStr) return null;
+export const findLayerByPath = (psd: Psd, pathId: string): Layer | null => {
+  if (!pathId) return null;
+  const indices = pathId.split('.').map(Number);
   
-  const indices = pathStr.split('.').map(Number);
-  let currentChildren = psd.children;
-  let foundLayer: Layer | null = null;
-  
-  for (let i = 0; i < indices.length; i++) {
-      const idx = indices[i];
-      if (!currentChildren || !currentChildren[idx]) return null;
-      
-      foundLayer = currentChildren[idx];
-      currentChildren = foundLayer.children;
+  let currentLayers = psd.children;
+  let targetLayer: Layer | undefined;
+
+  for (const index of indices) {
+    if (!currentLayers || !currentLayers[index]) {
+      return null;
+    }
+    targetLayer = currentLayers[index];
+    currentLayers = targetLayer.children;
   }
-  
-  return foundLayer;
+
+  return targetLayer || null;
 };
 
 /**
- * Reconstructs and downloads a new PSD file.
- * @param psd A complete Psd object structure with dimensions and children.
- * @returns A promise that resolves when the file download has been triggered.
+ * Writes a PSD object to a file and triggers a browser download.
+ * 
+ * @param psd The PSD object to write.
+ * @param filename The name of the file to download.
  */
-export const writePsdFile = async (psd: Psd, fileName: string = 'PROCESSED_RESULT.psd'): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    try {
-      // Generate the binary using ag-psd
-      const buffer = writePsd(psd, { generateThumbnail: true });
-      
-      // Create Blob
-      const blob = new Blob([buffer], { type: 'image/vnd.adobe.photoshop' });
-      const url = URL.createObjectURL(blob);
-      
-      // Trigger Download
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Cleanup
-      URL.revokeObjectURL(url);
-      resolve();
-    } catch (e) {
-      console.error("Failed to write PSD:", e);
-      reject(e);
-    }
-  });
+export const writePsdFile = async (psd: Psd, filename: string) => {
+  try {
+    // writePsd returns an ArrayBuffer or Buffer depending on environment. In browser, ArrayBuffer.
+    const buffer = writePsd(psd, { generateThumbnail: false });
+    
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Error writing PSD file:", err);
+    throw new Error("Failed to construct PSD binary.");
+  }
 };

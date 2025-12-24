@@ -1,6 +1,7 @@
 import React, { memo, useMemo } from 'react';
 import { Handle, Position, NodeProps, useEdges, useNodes, Node } from 'reactflow';
 import { PSDNodeData } from '../types';
+import { getSemanticThemeObject } from '../services/psdService';
 
 export const TemplateSplitterNode = memo(({ id }: NodeProps) => {
   const edges = useEdges();
@@ -19,17 +20,6 @@ export const TemplateSplitterNode = memo(({ id }: NodeProps) => {
   // Helper to check if a specific container handle is connected
   const isHandleConnected = (handleId: string) => {
     return edges.some(e => e.source === id && e.sourceHandle === handleId);
-  };
-
-  const getContainerColorInfo = (originalName: string) => {
-    if (originalName.includes('BG')) {
-      return { border: 'border-purple-500', bg: 'bg-purple-500', text: 'text-purple-200', dot: 'bg-purple-400' };
-    } else if (originalName.includes('SYMBOLS')) {
-      return { border: 'border-orange-500', bg: 'bg-orange-500', text: 'text-orange-200', dot: 'bg-orange-400' };
-    } else if (originalName.includes('COUNTERS')) {
-      return { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-blue-200', dot: 'bg-blue-400' };
-    }
-    return { border: 'border-slate-500', bg: 'bg-slate-500', text: 'text-slate-300', dot: 'bg-slate-400' };
   };
 
   return (
@@ -66,8 +56,8 @@ export const TemplateSplitterNode = memo(({ id }: NodeProps) => {
             </div>
           ) : (
             <div className="flex flex-col space-y-1">
-              {containers.map((container) => {
-                const colors = getContainerColorInfo(container.originalName);
+              {containers.map((container, index) => {
+                const theme = getSemanticThemeObject(container.name, index);
                 const isConnected = isHandleConnected(container.name);
                 
                 return (
@@ -76,8 +66,8 @@ export const TemplateSplitterNode = memo(({ id }: NodeProps) => {
                     className={`relative flex items-center justify-between p-2 rounded border border-slate-700/50 bg-slate-900/30 group hover:border-slate-600 transition-colors`}
                   >
                     <div className="flex items-center space-x-2 overflow-hidden">
-                       <div className={`w-2 h-2 rounded-full ${colors.dot} shrink-0`}></div>
-                       <span className={`text-xs font-medium truncate ${colors.text}`} title={container.name}>
+                       <div className={`w-2 h-2 rounded-full ${theme.dot} shrink-0`}></div>
+                       <span className={`text-xs font-medium truncate ${theme.text}`} title={container.name}>
                          {container.name}
                        </span>
                     </div>

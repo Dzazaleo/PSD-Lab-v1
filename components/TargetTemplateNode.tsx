@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { parsePsdFile, extractTemplateMetadata } from '../services/psdService';
+import { parsePsdFile, extractTemplateMetadata, getSemanticTheme } from '../services/psdService';
 import { PSDNodeData, TemplateMetadata } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 
@@ -22,10 +22,10 @@ const TargetTemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metad
         style={{ height: `${previewHeight}px` }}
       >
         <div className="absolute inset-0">
-          {containers.map((container) => (
+          {containers.map((container, index) => (
             <div
               key={container.id}
-              className="absolute border border-dashed border-emerald-500/50 bg-emerald-500/10 flex items-center justify-center text-emerald-200 transition-opacity hover:opacity-100 opacity-70"
+              className={`absolute border border-dashed flex items-center justify-center transition-opacity hover:opacity-100 opacity-70 ${getSemanticTheme(container.originalName, index)}`}
               style={{
                 top: `${container.normalized.y * 100}%`,
                 left: `${container.normalized.x * 100}%`,
@@ -34,7 +34,7 @@ const TargetTemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metad
               }}
               title={`${container.name} (${container.bounds.w}x${container.bounds.h})`}
             >
-              <div className="text-[8px] font-mono truncate px-0.5 bg-black/30 rounded">{container.name}</div>
+              <div className="text-[8px] font-mono truncate px-0.5 bg-black/40 rounded">{container.name}</div>
             </div>
           ))}
         </div>
@@ -133,9 +133,10 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
   const isConnectable = isDataLoaded && hasBinary;
 
   return (
-    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors relative ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
-      {/* Header */}
-      <div className={`p-2 border-b flex items-center justify-between ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-emerald-900 border-emerald-800'}`}>
+    // Removed overflow-hidden to prevent clipping of the output handle
+    <div className={`w-72 rounded-lg shadow-xl border font-sans transition-colors relative ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
+      {/* Header - Added rounded-t-lg since parent overflow is no longer hidden */}
+      <div className={`p-2 border-b flex items-center justify-between rounded-t-lg ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-emerald-900 border-emerald-800'}`}>
         <div className="flex items-center space-x-2">
            {isDehydrated ? (
              <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

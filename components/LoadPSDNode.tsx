@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { parsePsdFile, extractTemplateMetadata, mapLayersToContainers, getCleanLayerTree } from '../services/psdService';
+import { parsePsdFile, extractTemplateMetadata, mapLayersToContainers, getCleanLayerTree, getSemanticTheme } from '../services/psdService';
 import { PSDNodeData, TemplateMetadata } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 
@@ -14,18 +14,6 @@ const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata })
   // w-56 is 224px in Tailwind
   const PREVIEW_WIDTH = 224;
   const previewHeight = PREVIEW_WIDTH * aspectRatio;
-
-  const getContainerStyle = (originalName: string) => {
-    // Check original name (with !!) for prefixes to determine color coding
-    if (originalName.includes('BG')) {
-      return 'border-purple-500 bg-purple-500/20 text-purple-200';
-    } else if (originalName.includes('SYMBOLS')) {
-      return 'border-orange-500 bg-orange-500/20 text-orange-200';
-    } else if (originalName.includes('COUNTERS')) {
-      return 'border-blue-500 bg-blue-500/20 text-blue-200';
-    }
-    return 'border-slate-500 bg-slate-500/10 text-slate-300';
-  };
 
   return (
     <div className="w-full mt-2 flex flex-col items-center">
@@ -46,10 +34,10 @@ const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata })
             </div>
           )}
           
-          {containers.map((container) => (
+          {containers.map((container, index) => (
             <div
               key={container.id}
-              className={`absolute border flex flex-col justify-start items-start overflow-hidden transition-opacity hover:opacity-100 opacity-80 ${getContainerStyle(container.originalName)}`}
+              className={`absolute border flex flex-col justify-start items-start overflow-hidden transition-opacity hover:opacity-100 opacity-80 ${getSemanticTheme(container.originalName, index)}`}
               style={{
                 top: `${container.normalized.y * 100}%`,
                 left: `${container.normalized.x * 100}%`,
@@ -58,7 +46,7 @@ const TemplatePreview: React.FC<{ metadata: TemplateMetadata }> = ({ metadata })
               }}
               title={`${container.name} (${container.bounds.w}x${container.bounds.h})`}
             >
-              <div className="px-1 py-0.5 bg-black/50 text-[8px] whitespace-nowrap truncate w-full leading-none">
+              <div className="px-1 py-0.5 bg-black/40 text-[8px] whitespace-nowrap truncate w-full leading-none">
                 {container.name}
               </div>
             </div>
@@ -168,9 +156,10 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
   };
 
   return (
-    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors relative ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
-      {/* Title Header */}
-      <div className={`p-2 border-b flex items-center justify-between ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-slate-900 border-slate-700'}`}>
+    // Removed overflow-hidden to prevent clipping of the output handle
+    <div className={`w-72 rounded-lg shadow-xl border font-sans transition-colors relative ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
+      {/* Title Header - Added rounded-t-lg since parent overflow is no longer hidden */}
+      <div className={`p-2 border-b flex items-center justify-between rounded-t-lg ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-slate-900 border-slate-700'}`}>
         <div className="flex items-center space-x-2">
           {isDehydrated ? (
              <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

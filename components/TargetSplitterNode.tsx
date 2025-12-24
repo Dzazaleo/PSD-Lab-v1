@@ -2,6 +2,7 @@ import React, { memo, useMemo, useEffect } from 'react';
 import { Handle, Position, NodeProps, useEdges, useNodes, Node } from 'reactflow';
 import { PSDNodeData } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
+import { getSemanticThemeObject } from '../services/psdService';
 
 export const TargetSplitterNode = memo(({ id }: NodeProps) => {
   const edges = useEdges();
@@ -93,15 +94,16 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
                {containers.length === 0 ? (
                  <div className="text-xs text-slate-500 p-2 italic">Target has no containers</div>
                ) : (
-                 containers.map((container) => {
+                 containers.map((container, index) => {
                    const isFilled = connectedSlots.has(container.name);
+                   const theme = getSemanticThemeObject(container.name, index);
                    
                    return (
                      <div 
                        key={container.id} 
                        className={`relative flex items-center justify-between p-2 pl-4 rounded border transition-colors ${
                          isFilled 
-                           ? 'bg-emerald-900/20 border-emerald-500/30' 
+                           ? `${theme.bg.replace('/20', '/10')} ${theme.border.replace('border-', 'border-opacity-30 border-')}` 
                            : 'bg-slate-900/30 border-slate-700/50'
                        }`}
                      >
@@ -112,14 +114,14 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
                          id={container.name} 
                          className={`!w-3 !h-3 !-left-1.5 transition-colors duration-300 ${
                            isFilled 
-                             ? '!bg-emerald-500 !border-emerald-200' 
+                             ? `${theme.dot} !border-white` 
                              : '!bg-slate-700 !border-slate-500 hover:!bg-slate-600'
                          }`}
                          style={{ top: '50%', transform: 'translateY(-50%)' }}
                        />
 
                        <div className="flex flex-col leading-tight overflow-hidden w-full mr-4">
-                          <span className={`text-xs font-medium truncate ${isFilled ? 'text-emerald-300' : 'text-slate-400'}`}>
+                          <span className={`text-xs font-medium truncate ${isFilled ? theme.text : 'text-slate-400'}`}>
                             {container.name}
                           </span>
                           <span className="text-[9px] text-slate-600 font-mono">
