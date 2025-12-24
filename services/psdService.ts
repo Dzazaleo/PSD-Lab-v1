@@ -1,4 +1,4 @@
-import { readPsd, Psd, ReadOptions, Layer } from 'ag-psd';
+import { readPsd, writePsd, Psd, ReadOptions, WriteOptions, Layer } from 'ag-psd';
 import { TemplateMetadata, ContainerDefinition, DesignValidationReport, ValidationIssue, SerializableLayer, ContainerContext } from '../types';
 
 export interface PSDParseOptions {
@@ -225,13 +225,13 @@ export const mapLayersToContainers = (psd: Psd, template: TemplateMetadata): Des
 };
 
 /**
- * Recursively maps ag-psd Layers to a simplified SerializableLayer structure, 
- * filtering out the '!!TEMPLATE' group and stripping heavy pixel data.
- * Now includes coordinate bounds.
+ * Recursively maps ag-psd Layers to a simplified SerializableLayer structure.
+ * USES DETERMINISTIC PATH IDs for reconstruction.
  * @param layers The array of layers to process.
+ * @param path The current hierarchy path (e.g., "0.1").
  * @returns An array of lightweight SerializableLayer objects.
  */
-export const getCleanLayerTree = (layers: Layer[]): SerializableLayer[] => {
+export const getCleanLayerTree = (layers: Layer[], path: string = ''): SerializableLayer[] => {
   const nodes: SerializableLayer[] = [];
   
   layers.forEach((child, index) => {
@@ -240,18 +240,21 @@ export const getCleanLayerTree = (layers: Layer[]): SerializableLayer[] => {
       return;
     }
 
+    // Construct deterministic path: "parentIndex.childIndex"
+    const currentPath = path ? `${path}.${index}` : `${index}`;
+
     const top = child.top ?? 0;
     const left = child.left ?? 0;
     const bottom = child.bottom ?? 0;
     const right = child.right ?? 0;
 
     const node: SerializableLayer = {
-      // Use a combination of name and index for ID to ensure uniqueness in the tree view
-      id: `${child.name || 'layer'}-${index}-${Math.random().toString(36).substr(2, 9)}`,
+      // Deterministic ID based on traversal path
+      id: `layer-${currentPath}`,
       name: child.name || 'Untitled',
       type: child.children ? 'group' : 'layer',
-      isVisible: child.hidden !== true, // ag-psd uses 'hidden' property, we map to isVisible
-      opacity: child.opacity != null ? child.opacity / 255 : 1, // ag-psd opacity is 0-255
+      isVisible: child.hidden !== true, 
+      opacity: child.opacity != null ? child.opacity / 255 : 1, 
       coords: {
         x: left,
         y: top,
@@ -261,11 +264,67 @@ export const getCleanLayerTree = (layers: Layer[]): SerializableLayer[] => {
     };
 
     if (child.children) {
-      node.children = getCleanLayerTree(child.children);
+      node.children = getCleanLayerTree(child.children, currentPath);
     }
 
     nodes.push(node);
   });
 
   return nodes;
+};
+
+/**
+ * Finds a heavy binary Layer object in the original PSD using the deterministic path ID.
+ */
+export const findLayerByPath = (psd: Psd, layerId: string): Layer | null => {
+  // ID Format: layer-0.1.3
+  const pathStr = layerId.replace('layer-', '');
+  if (!pathStr) return null;
+  
+  const indices = pathStr.split('.').map(Number);
+  let currentChildren = psd.children;
+  let foundLayer: Layer | null = null;
+  
+  for (let i = 0; i < indices.length; i++) {
+      const idx = indices[i];
+      if (!currentChildren || !currentChildren[idx]) return null;
+      
+      foundLayer = currentChildren[idx];
+      currentChildren = foundLayer.children;
+  }
+  
+  return foundLayer;
+};
+
+/**
+ * Reconstructs and downloads a new PSD file.
+ * @param psd A complete Psd object structure with dimensions and children.
+ * @returns A promise that resolves when the file download has been triggered.
+ */
+export const writePsdFile = async (psd: Psd, fileName: string = 'PROCESSED_RESULT.psd'): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    try {
+      // Generate the binary using ag-psd
+      const buffer = writePsd(psd, { generateThumbnail: true });
+      
+      // Create Blob
+      const blob = new Blob([buffer], { type: 'image/vnd.adobe.photoshop' });
+      const url = URL.createObjectURL(blob);
+      
+      // Trigger Download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Cleanup
+      URL.revokeObjectURL(url);
+      resolve();
+    } catch (e) {
+      console.error("Failed to write PSD:", e);
+      reject(e);
+    }
+  });
 };

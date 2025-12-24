@@ -18,7 +18,6 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   // --------------------------------------------------------------------------
   // 1. Resolve Source Data (Content + Source Bounds)
   // --------------------------------------------------------------------------
-  // Strategy: Identify Source Node ID -> Look up 'resolvedRegistry'
   const sourceData = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'source-input');
     if (!edge || !edge.sourceHandle) return null;
@@ -26,15 +25,14 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
     const sourceNodeId = edge.source;
     const sourceHandleId = edge.sourceHandle;
 
-    // Check if the source node has registered data in the store
     const resolvedData = resolvedRegistry[sourceNodeId];
     if (!resolvedData) return null;
 
-    // Retrieve specific channel context
     const context = resolvedData[sourceHandleId];
     if (!context) return null;
 
     return {
+        sourceNodeId: sourceNodeId, // Capturing the Node ID of the source for Export lookup
         containerName: context.container.containerName,
         layers: context.layers,
         originalBounds: context.container.bounds
@@ -45,18 +43,15 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   // --------------------------------------------------------------------------
   // 2. Resolve Target Data (Destination Bounds)
   // --------------------------------------------------------------------------
-  // Strategy: Identify Source Node ID -> Look up 'templateRegistry' (Since TargetSplitter broadcasts template)
   const targetData = useMemo(() => {
      const edge = edges.find(e => e.target === id && e.targetHandle === 'target-input');
      if (!edge || !edge.sourceHandle) return null;
 
      const sourceNodeId = edge.source;
      
-     // Look up the template registered by the connected node (TargetSplitter)
      const template = templateRegistry[sourceNodeId];
      if (!template) return null;
 
-     // Parse Handle ID: "slot-bounds-!!SYMBOLS" -> "!!SYMBOLS"
      let containerName = edge.sourceHandle;
      if (containerName.startsWith('slot-bounds-')) {
          containerName = containerName.replace('slot-bounds-', '');
@@ -77,35 +72,27 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
 
 
   // --------------------------------------------------------------------------
-  // 3. Transformation Math (The "Math" Trigger)
+  // 3. Transformation Math
   // --------------------------------------------------------------------------
   const transformationPayload: TransformedPayload | null = useMemo(() => {
-    // strict data validation: must have both
     if (!sourceData || !targetData) return null;
-    
-    // Safety check for geometry
     if (!sourceData.originalBounds || !targetData.bounds) return null;
 
     const sourceRect = sourceData.originalBounds;
     const targetRect = targetData.bounds;
 
-    // Uniform Fit Calculation
     const ratioX = targetRect.w / sourceRect.w;
     const ratioY = targetRect.h / sourceRect.h;
     const scale = Math.min(ratioX, ratioY);
 
-    // Recursive Layer Transformation
     const transformLayers = (layers: SerializableLayer[]): TransformedLayer[] => {
       return layers.map(layer => {
-        // Normalize coordinates relative to source container
         const relX = (layer.coords.x - sourceRect.x) / sourceRect.w;
         const relY = (layer.coords.y - sourceRect.y) / sourceRect.h;
 
-        // Project to target container
         const newX = targetRect.x + (relX * targetRect.w);
         const newY = targetRect.y + (relY * targetRect.h);
 
-        // Scale dimensions
         const newW = layer.coords.w * scale;
         const newH = layer.coords.h * scale;
 
@@ -127,6 +114,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
 
     return {
       status: 'success',
+      sourceNodeId: sourceData.sourceNodeId,
       sourceContainer: sourceData.containerName,
       targetContainer: targetData.containerName,
       layers: transformedLayers,
@@ -140,13 +128,12 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
 
 
   // --------------------------------------------------------------------------
-  // 4. Update Node State (Side Effect with Loop Protection)
+  // 4. Update Node State
   // --------------------------------------------------------------------------
   useEffect(() => {
     let frameId: number;
 
     const updateNodeData = () => {
-        // Compare with current data to prevent infinite loops
         const currentPayload = data.transformedPayload;
         const isDifferent = JSON.stringify(currentPayload) !== JSON.stringify(transformationPayload);
 
@@ -176,34 +163,8 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   const isReady = !!transformationPayload;
 
   return (
-    <div className="min-w-[280px] bg-slate-800 rounded-lg shadow-xl border border-indigo-500/50 overflow-hidden font-sans">
+    <div className="min-w-[280px] bg-slate-800 rounded-lg shadow-xl border border-indigo-500/50 overflow-hidden font-sans relative">
       
-      {/* Inputs */}
-      <Handle 
-        type="target" 
-        position={Position.Left} 
-        id="source-input" 
-        className={`!top-10 !w-3 !h-3 !border-2 ${isSourceReady ? '!bg-indigo-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-        title="Input: Source Content (from Resolver)" 
-      />
-      
-      <Handle 
-        type="target" 
-        position={Position.Left} 
-        id="target-input" 
-        className={`!top-20 !w-3 !h-3 !border-2 ${isTargetReady ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-        title="Input: Target Slot (from Target Splitter)" 
-      />
-
-      {/* Output */}
-      <Handle 
-        type="source" 
-        position={Position.Right} 
-        id="payload-output" 
-        className={`!bg-indigo-500 !border-2 ${isReady ? '!border-white' : '!border-indigo-800'}`} 
-        title="Output: Transformed Payload" 
-      />
-
       {/* Header */}
       <div className="bg-indigo-900/80 p-2 border-b border-indigo-800 flex items-center justify-between">
          <div className="flex items-center space-x-2">
@@ -219,7 +180,16 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
       <div className="p-3 space-y-3">
         
         {/* Connection Status: Source */}
-        <div className="flex flex-col space-y-1">
+        <div className="relative flex flex-col space-y-1">
+           {/* Handle is offset to left of padding (-12px) minus half handle width (6px) = -18px */}
+           <Handle 
+            type="target" 
+            position={Position.Left} 
+            id="source-input" 
+            className={`!w-3 !h-3 !border-2 ${isSourceReady ? '!bg-indigo-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
+            style={{ top: '50%', left: '-19px', transform: 'translateY(-50%)' }}
+            title="Input: Source Content (from Resolver)" 
+           />
            <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider">Source Input</label>
            <div className={`text-xs px-2 py-1.5 rounded border transition-colors ${
              isSourceReady 
@@ -231,7 +201,15 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
         </div>
 
         {/* Connection Status: Target */}
-        <div className="flex flex-col space-y-1">
+        <div className="relative flex flex-col space-y-1">
+           <Handle 
+            type="target" 
+            position={Position.Left} 
+            id="target-input" 
+            className={`!w-3 !h-3 !border-2 ${isTargetReady ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
+            style={{ top: '50%', left: '-19px', transform: 'translateY(-50%)' }}
+            title="Input: Target Slot (from Target Splitter)" 
+           />
            <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider">Target Slot</label>
            <div className={`text-xs px-2 py-1.5 rounded border transition-colors ${
              isTargetReady 
@@ -243,7 +221,16 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
         </div>
 
         {/* Status Message / Metrics */}
-        <div className="pt-2 border-t border-slate-700/50">
+        <div className="relative pt-2 border-t border-slate-700/50 min-h-[40px] flex flex-col justify-center">
+             <Handle 
+                type="source" 
+                position={Position.Right} 
+                id="payload-output" 
+                className={`!bg-indigo-500 !border-2 ${isReady ? '!border-white' : '!border-indigo-800'}`} 
+                style={{ top: '50%', right: '-19px', transform: 'translateY(-50%)' }}
+                title="Output: Transformed Payload" 
+            />
+
            {!isReady ? (
              <div className="flex items-center justify-center space-x-2 py-1">
                 <div className="animate-pulse w-2 h-2 rounded-full bg-orange-500"></div>

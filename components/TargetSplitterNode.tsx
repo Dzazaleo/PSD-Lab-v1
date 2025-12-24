@@ -19,7 +19,6 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
   const template = upstreamNodeId ? templateRegistry[upstreamNodeId] : null;
 
   // 3. Broadcast Template as "Self" to Store
-  // This allows Remapper nodes connected to this splitter to look up the template by THIS node's ID.
   useEffect(() => {
     if (template) {
         registerTemplate(id, template);
@@ -48,7 +47,7 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
   const isTemplateConnected = !!template;
 
   return (
-    <div className="min-w-[240px] bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans">
+    <div className="min-w-[260px] bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans">
        {/* Input Handle for Template Definition */}
        <Handle
         type="target"
@@ -145,15 +144,6 @@ export const TargetSplitterNode = memo(({ id }: NodeProps) => {
           </div>
         )}
       </div>
-
-       {/* Output Handle for Final Assembly */}
-       <Handle
-        type="source"
-        position={Position.Right}
-        id="assembly-output"
-        className="!w-3 !h-3 !bg-emerald-500 !border-2 !border-slate-800"
-        title="Output: Target Assembly Object"
-      />
     </div>
   );
 });

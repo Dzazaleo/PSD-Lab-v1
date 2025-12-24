@@ -20,6 +20,7 @@ import { DesignInfoNode } from './components/DesignInfoNode';
 import { TemplateSplitterNode } from './components/TemplateSplitterNode';
 import { ContainerResolverNode } from './components/ContainerResolverNode';
 import { RemapperNode } from './components/RemapperNode';
+import { ExportPSDNode } from './components/ExportPSDNode';
 import { PSDNodeData } from './types';
 import { ProceduralStoreProvider } from './store/ProceduralContext';
 
@@ -27,50 +28,64 @@ const initialNodes: Node<PSDNodeData>[] = [
   {
     id: 'node-1',
     type: 'loadPsd',
-    position: { x: 100, y: 100 },
+    position: { x: 50, y: 50 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
     id: 'node-target-1',
     type: 'targetTemplate',
-    position: { x: 100, y: 550 },
+    position: { x: 650, y: 50 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
     id: 'node-2',
     type: 'designInfo',
-    position: { x: 500, y: 100 },
+    position: { x: 350, y: 50 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
     id: 'node-3',
     type: 'templateSplitter',
-    position: { x: 500, y: 550 },
+    position: { x: 350, y: 450 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
     id: 'node-4',
     type: 'containerResolver',
-    position: { x: 900, y: 550 },
+    position: { x: 950, y: 450 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
     id: 'node-remapper-1',
     type: 'remapper',
-    position: { x: 1300, y: 550 },
+    position: { x: 1300, y: 400 },
     data: { fileName: null, template: null, validation: null, designLayers: null, remapperConfig: { targetContainerName: null } },
   },
   {
     id: 'node-5',
     type: 'targetSplitter',
-    position: { x: 1700, y: 550 },
+    position: { x: 1300, y: 50 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
+  {
+    id: 'node-export-1',
+    type: 'exportPsd',
+    position: { x: 1650, y: 400 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  }
 ];
 
 const initialEdges: Edge[] = [
     { id: 'e1-2', source: 'node-1', target: 'node-2' },
-    { id: 'e1-3', source: 'node-1', target: 'node-3' }
+    { id: 'e1-3', source: 'node-1', target: 'node-3' },
+    // Connect Target Template (Metadata Out) to Target Splitter (Template Input)
+    { 
+      id: 'e-target-1-5', 
+      source: 'node-target-1', 
+      target: 'node-5', 
+      sourceHandle: 'target-metadata-out',
+      targetHandle: 'template-input'
+    }
 ];
 
 const App: React.FC = () => {
@@ -121,7 +136,10 @@ const App: React.FC = () => {
         // Intercept connection and remove any existing edge on the specific target handle.
         const targetHandle = params.targetHandle || null;
         
-        const cleanEdges = eds.filter((edge) => {
+        // Exception: Export Node Assembly Input allows multiple connections
+        const isMultiInput = targetNode?.type === 'exportPsd' && targetHandle === 'assembly-input';
+
+        const cleanEdges = isMultiInput ? eds : eds.filter((edge) => {
           const edgeTargetHandle = edge.targetHandle || null;
           // Keep the edge if it targets a different node OR a different handle on the same node
           return edge.target !== params.target || edgeTargetHandle !== targetHandle;
@@ -142,6 +160,7 @@ const App: React.FC = () => {
     templateSplitter: TemplateSplitterNode,
     containerResolver: ContainerResolverNode,
     remapper: RemapperNode,
+    exportPsd: ExportPSDNode,
   }), []);
 
   return (

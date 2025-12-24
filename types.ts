@@ -100,6 +100,7 @@ export interface TargetAssembly {
 
 export interface TransformedPayload {
   status: 'success' | 'error' | 'idle';
+  sourceNodeId: string;
   sourceContainer: string;
   targetContainer: string;
   layers: TransformedLayer[];
