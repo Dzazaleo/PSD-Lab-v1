@@ -17,6 +17,9 @@ interface ProceduralState {
 
   // Maps NodeID -> LayoutStrategy (AI Analysis)
   analysisRegistry: Record<string, LayoutStrategy>;
+
+  // Global counter to force re-evaluation of downstream nodes upon binary re-hydration
+  globalVersion: number;
 }
 
 interface ProceduralContextType extends ProceduralState {
@@ -26,6 +29,7 @@ interface ProceduralContextType extends ProceduralState {
   registerPayload: (nodeId: string, handleId: string, payload: TransformedPayload) => void;
   registerAnalysis: (nodeId: string, strategy: LayoutStrategy) => void;
   unregisterNode: (nodeId: string) => void;
+  triggerGlobalRefresh: () => void;
 }
 
 const ProceduralContext = createContext<ProceduralContextType | null>(null);
@@ -36,6 +40,7 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
   const [resolvedRegistry, setResolvedRegistry] = useState<Record<string, Record<string, MappingContext>>>({});
   const [payloadRegistry, setPayloadRegistry] = useState<Record<string, Record<string, TransformedPayload>>>({});
   const [analysisRegistry, setAnalysisRegistry] = useState<Record<string, LayoutStrategy>>({});
+  const [globalVersion, setGlobalVersion] = useState<number>(0);
 
   const registerPsd = useCallback((nodeId: string, psd: Psd) => {
     setPsdRegistry(prev => ({ ...prev, [nodeId]: psd }));
@@ -100,20 +105,26 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     setAnalysisRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
   }, []);
 
+  const triggerGlobalRefresh = useCallback(() => {
+    setGlobalVersion(v => v + 1);
+  }, []);
+
   const value = useMemo(() => ({
     psdRegistry,
     templateRegistry,
     resolvedRegistry,
     payloadRegistry,
     analysisRegistry,
+    globalVersion,
     registerPsd,
     registerTemplate,
     registerResolved,
     registerPayload,
     registerAnalysis,
-    unregisterNode
-  }), [psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, analysisRegistry, 
-       registerPsd, registerTemplate, registerResolved, registerPayload, registerAnalysis, unregisterNode]);
+    unregisterNode,
+    triggerGlobalRefresh
+  }), [psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, analysisRegistry, globalVersion,
+       registerPsd, registerTemplate, registerResolved, registerPayload, registerAnalysis, unregisterNode, triggerGlobalRefresh]);
 
   return (
     <ProceduralContext.Provider value={value}>

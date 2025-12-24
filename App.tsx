@@ -20,8 +20,9 @@ import { DesignInfoNode } from './components/DesignInfoNode';
 import { TemplateSplitterNode } from './components/TemplateSplitterNode';
 import { ContainerResolverNode } from './components/ContainerResolverNode';
 import { RemapperNode } from './components/RemapperNode';
-import { DesignAnalystNode } from './components/DesignAnalystNode'; // NEW IMPORT
+import { DesignAnalystNode } from './components/DesignAnalystNode'; 
 import { ExportPSDNode } from './components/ExportPSDNode';
+import { ProjectControls } from './components/ProjectControls'; // NEW IMPORT
 import { PSDNodeData } from './types';
 import { ProceduralStoreProvider } from './store/ProceduralContext';
 
@@ -57,7 +58,7 @@ const initialNodes: Node<PSDNodeData>[] = [
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
-    id: 'node-analyst-1', // Pre-positioned Analyst Node
+    id: 'node-analyst-1', 
     type: 'designAnalyst',
     position: { x: 1300, y: 300 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
@@ -188,7 +189,7 @@ const App: React.FC = () => {
     templateSplitter: TemplateSplitterNode,
     containerResolver: ContainerResolverNode,
     remapper: RemapperNode,
-    designAnalyst: DesignAnalystNode, // REGISTERED
+    designAnalyst: DesignAnalystNode, 
     exportPsd: ExportPSDNode,
   }), []);
 
@@ -223,6 +224,7 @@ const App: React.FC = () => {
               </p>
             </div>
           </ReactFlow>
+          <ProjectControls />
         </ReactFlowProvider>
       </div>
     </ProceduralStoreProvider>

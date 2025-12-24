@@ -1,4 +1,5 @@
 import { Psd } from 'ag-psd';
+import { Node, Edge } from 'reactflow';
 
 export const MAX_BOUNDARY_VIOLATION_PERCENT = 0.03;
 
@@ -160,6 +161,15 @@ export interface TargetTemplateData {
   containerContext: null;
   mappingContext: null;
   error?: string | null;
+}
+
+// Persistence Schema
+export interface ProjectExport {
+  version: string;
+  timestamp: number;
+  nodes: Node<PSDNodeData>[];
+  edges: Edge[];
+  viewport: { x: number, y: number, zoom: number };
 }
 
 // Re-export Psd type for convenience in other files

@@ -76,7 +76,12 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
   const { setNodes } = useReactFlow();
   
   // Connect to Procedural Store
-  const { registerPsd, registerTemplate, unregisterNode } = useProceduralStore();
+  const { psdRegistry, registerPsd, registerTemplate, unregisterNode, triggerGlobalRefresh } = useProceduralStore();
+
+  // Determine State
+  const isDataLoaded = !!data.template;
+  const hasBinary = !!psdRegistry[id];
+  const isDehydrated = isDataLoaded && !hasBinary;
 
   // Cleanup on unmount
   useEffect(() => {
@@ -95,26 +100,25 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       console.log(`Parsing file: ${file.name}...`);
       const parsedPsd = await parsePsdFile(file);
       
-      // Log simple dimensions instead of the full object to prevent console freezing
       console.log(`Parsed PSD: ${parsedPsd.width}x${parsedPsd.height}, children: ${parsedPsd.children?.length}`);
 
       // Extract template metadata
-      // This object is lightweight and serializable
       const templateData = extractTemplateMetadata(parsedPsd);
       
       // Validate procedural rules
       const validationReport = mapLayersToContainers(parsedPsd, templateData);
 
       // Extract clean visual design layer hierarchy
-      // This strips heavy image data while preserving structure for the DesignInfoNode
       const designLayers = parsedPsd.children ? getCleanLayerTree(parsedPsd.children) : [];
 
       // REGISTER WITH STORE
       registerPsd(id, parsedPsd);
       registerTemplate(id, templateData);
+      
+      // Trigger global refresh to notify downstream logic of new binary availability
+      triggerGlobalRefresh();
 
       // Update the node data in the global graph state
-      // We still keep metadata in ReactFlow for UI, but the Heavy PSD object is in the Store.
       setNodes((nodes) =>
         nodes.map((node) => {
           if (node.id === id) {
@@ -125,7 +129,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
                 fileName: file.name,
                 template: templateData,
                 validation: validationReport,
-                designLayers: designLayers, // Keeping designLayers in data as it's used by DesignInfoNode visualization
+                designLayers: designLayers, // This reference update helps downstream hooks re-run
                 error: null,
               },
             };
@@ -138,7 +142,6 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       setLocalError(errorMessage);
       console.error("PSD processing error:", err);
       
-      // Update node with error state
       setNodes((nodes) =>
         nodes.map((node) => {
           if (node.id === id) {
@@ -146,10 +149,8 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
               ...node,
               data: {
                 ...node.data,
-                fileName: file.name,
-                template: null,
-                validation: null,
-                designLayers: null,
+                // On error, if we were re-hydrating, we might want to keep the old metadata visible?
+                // For now, let's show the error state.
                 error: errorMessage,
               },
             };
@@ -160,23 +161,29 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
     } finally {
       setIsLoading(false);
     }
-  }, [id, setNodes, registerPsd, registerTemplate]);
+  }, [id, setNodes, registerPsd, registerTemplate, triggerGlobalRefresh]);
 
   const handleBoxClick = () => {
     fileInputRef.current?.click();
   };
 
-  const isLoaded = !!data.template;
-
   return (
-    <div className="w-72 bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans">
+    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
       {/* Title Header */}
-      <div className="bg-slate-900 p-2 border-b border-slate-700 flex items-center justify-between">
+      <div className={`p-2 border-b flex items-center justify-between ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-slate-900 border-slate-700'}`}>
         <div className="flex items-center space-x-2">
-          <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          <span className="text-sm font-semibold text-slate-200">Load PSD</span>
+          {isDehydrated ? (
+             <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+             </svg>
+          ) : (
+            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+          )}
+          <span className={`text-sm font-semibold ${isDehydrated ? 'text-orange-100' : 'text-slate-200'}`}>
+             {isDehydrated ? 'Missing Binary Data' : 'Load PSD'}
+          </span>
         </div>
       </div>
 
@@ -190,7 +197,29 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
           onChange={handleFileChange}
         />
 
-        {!isLoaded && !isLoading && (
+        {/* RE-HYDRATION UI */}
+        {isDehydrated && !isLoading && (
+            <div className="flex flex-col space-y-3">
+                <div className="text-[11px] text-orange-200/90 leading-tight bg-orange-900/20 p-2 rounded border border-orange-500/20">
+                   <strong>Binary Data Missing.</strong><br/>
+                   The project structure was loaded, but the heavy binary data is needed to proceed.
+                   <br/><br/>
+                   Please re-upload: <span className="font-mono text-orange-100 bg-black/20 px-1 rounded">{data.fileName}</span>
+                </div>
+                
+                <button 
+                  onClick={handleBoxClick}
+                  className="w-full py-2 bg-orange-600 hover:bg-orange-500 text-white rounded text-xs font-bold uppercase tracking-wider shadow-lg transition-colors flex items-center justify-center space-x-2"
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span>Re-upload File</span>
+                </button>
+            </div>
+        )}
+
+        {!isDataLoaded && !isLoading && !isDehydrated && (
           <div 
             onClick={handleBoxClick}
             className="group cursor-pointer border-2 border-dashed border-slate-600 hover:border-blue-500 rounded-md p-6 flex flex-col items-center justify-center transition-colors bg-slate-800/50 hover:bg-slate-700/50"
@@ -214,7 +243,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
           </div>
         )}
 
-        {isLoaded && !isLoading && (
+        {isDataLoaded && !isLoading && !isDehydrated && (
           <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
             <div className="flex items-center space-x-2 mb-3">
               <div className="bg-green-500/20 text-green-400 p-1 rounded-full shrink-0">
@@ -274,14 +303,13 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
       </div>
 
       {/* Output Handle */}
-      {/* Defined to output Serializable PSD Node Data */}
       <Handle
         type="source"
         position={Position.Right}
         id="psd-output"
-        isConnectable={isLoaded}
+        isConnectable={isDataLoaded}
         title="Output: Serializable Template Metadata & Design Layers"
-        className={`w-3 h-3 border-2 transition-colors duration-300 ${isLoaded ? 'bg-blue-500 border-white hover:bg-blue-400' : 'bg-slate-600 border-slate-400'}`}
+        className={`w-3 h-3 border-2 transition-colors duration-300 ${isDataLoaded ? 'bg-blue-500 border-white hover:bg-blue-400' : 'bg-slate-600 border-slate-400'}`}
       />
     </div>
   );
