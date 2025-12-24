@@ -12,8 +12,8 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
   const edges = useEdges();
   const nodes = useNodes();
   
-  // Access global registries for binary data
-  const { psdRegistry, templateRegistry } = useProceduralStore();
+  // Access global registries for binary data (Original PSDs)
+  const { psdRegistry } = useProceduralStore();
 
   // 1. Resolve Connected Target Template
   const targetTemplateNode = useMemo(() => {
@@ -23,30 +23,47 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
   }, [edges, nodes, id]);
 
   const templateMetadata = targetTemplateNode?.data?.template;
+  const containers = templateMetadata?.containers || [];
 
-  // 2. Resolve Connected Remapper Payloads
-  const activePayloads = useMemo(() => {
-    const payloadEdges = edges.filter(e => e.target === id && e.targetHandle === 'assembly-input');
-    const payloads: TransformedPayload[] = [];
+  // 2. Map Connections to Payloads
+  const slotConnections = useMemo(() => {
+    const map = new Map<string, TransformedPayload>();
+    
+    edges.forEach(edge => {
+      if (edge.target !== id) return;
+      
+      // Look for edges connected to our dynamic input handles (e.g., input-SYMBOLS)
+      if (!edge.targetHandle?.startsWith('input-')) return;
 
-    payloadEdges.forEach(edge => {
+      // Extract container name from handle ID
+      const containerName = edge.targetHandle.replace('input-', '');
+      
+      // Find the source node (Remapper)
       const sourceNode = nodes.find(n => n.id === edge.source) as Node<PSDNodeData>;
-      if (sourceNode?.data?.transformedPayload) {
-        payloads.push(sourceNode.data.transformedPayload);
+      
+      // Extract the payload from the source node's data
+      const payload = sourceNode?.data?.transformedPayload;
+
+      if (payload) {
+         // Verify that the payload is actually intended for this slot if needed
+         // But for now, we trust the user's connection + the handle ID
+         map.set(containerName, payload);
       }
     });
 
-    return payloads;
+    return map;
   }, [edges, nodes, id]);
 
   // 3. Status Calculation
-  const totalSlots = templateMetadata?.containers.length || 0;
-  const filledSlots = activePayloads.length;
-  const isReady = !!templateMetadata && filledSlots > 0;
+  const totalSlots = containers.length;
+  const filledSlots = slotConnections.size;
+  const isTemplateReady = !!templateMetadata;
+  // Enable export only when all slots defined in the template are filled
+  const isFullyAssembled = isTemplateReady && filledSlots === totalSlots && totalSlots > 0;
   
   // 4. Export Logic
   const handleExport = async () => {
-    if (!templateMetadata) return;
+    if (!templateMetadata || !isFullyAssembled) return;
     
     setIsExporting(true);
     setExportError(null);
@@ -63,18 +80,15 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       // B. Helper to recursively clone and transform layers
       const reconstructHierarchy = (
         transformedLayers: TransformedLayer[], 
-        sourcePsd: Psd,
-        sourceNodeId: string
+        sourcePsd: Psd
       ): Layer[] => {
         const resultLayers: Layer[] = [];
 
         for (const metaLayer of transformedLayers) {
-            // Find original heavy layer
+            // Find original heavy layer using the deterministic ID
             const originalLayer = findLayerByPath(sourcePsd, metaLayer.id);
             
             if (originalLayer) {
-                // Deep Clone (simple JSON way for properties, but need to preserve buffers)
-                // We create a new object spreading properties, but handling children recursively
                 const newLayer: Layer = {
                     ...originalLayer,
                     top: metaLayer.coords.y,
@@ -87,7 +101,7 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
                 };
 
                 if (metaLayer.type === 'group' && metaLayer.children) {
-                    newLayer.children = reconstructHierarchy(metaLayer.children, sourcePsd, sourceNodeId);
+                    newLayer.children = reconstructHierarchy(metaLayer.children, sourcePsd);
                 }
 
                 resultLayers.push(newLayer);
@@ -96,21 +110,23 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
         return resultLayers;
       };
 
-      // C. Process each Payload
+      // C. Process each Payload and Construct Final Hierarchy
       const finalChildren: Layer[] = [];
 
-      // Create a Map to group content by container if needed, or just append root groups
-      // Currently we just append all resolved groups to the root
-      
-      for (const payload of activePayloads) {
-          const sourcePsd = psdRegistry[payload.sourceNodeId];
-          if (!sourcePsd) {
-              console.warn(`Source PSD binaries missing for node ${payload.sourceNodeId}`);
-              continue;
-          }
+      // Iterate via template containers to maintain a deterministic order
+      for (const container of containers) {
+          const payload = slotConnections.get(container.name);
+          
+          if (payload) {
+              const sourcePsd = psdRegistry[payload.sourceNodeId];
+              if (!sourcePsd) {
+                  console.warn(`Source PSD binaries missing for node ${payload.sourceNodeId}`);
+                  continue;
+              }
 
-          const reconstructed = reconstructHierarchy(payload.layers, sourcePsd, payload.sourceNodeId);
-          finalChildren.push(...reconstructed);
+              const reconstructed = reconstructHierarchy(payload.layers, sourcePsd);
+              finalChildren.push(...reconstructed);
+          }
       }
 
       newPsd.children = finalChildren;
@@ -129,65 +145,107 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
   return (
     <div className="min-w-[300px] bg-slate-900 rounded-lg shadow-2xl border border-indigo-500 overflow-hidden font-sans">
       
-      {/* Inputs */}
-      <div className="relative">
-         {/* Template Input */}
-         <Handle 
-           type="target" 
-           position={Position.Left} 
-           id="template-input" 
-           className="!top-4 !bg-emerald-500" 
-           title="Target Template Definition"
-         />
-         {/* Assembly Input (Multi-connect) */}
-         <Handle 
-           type="target" 
-           position={Position.Left} 
-           id="assembly-input" 
-           className="!top-10 !bg-indigo-500 !h-6 !w-1.5 !rounded-sm" 
-           title="Transformed Payloads (Assembly)"
-         />
-      </div>
-
-      <div className="p-4 flex flex-col items-center text-center space-y-4">
-          <div className="flex flex-col items-center">
-             <div className="p-3 bg-indigo-500/20 rounded-full mb-2 border border-indigo-500/50">
-                 <svg className="w-6 h-6 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      {/* Header Area */}
+      <div className="relative bg-slate-800/50 p-2 border-b border-slate-700">
+         <div className="flex items-center space-x-2 mb-2">
+             <div className="p-1.5 bg-indigo-500/20 rounded-full border border-indigo-500/50">
+                 <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                  </svg>
              </div>
-             <h3 className="text-sm font-bold text-slate-100">Export PSD</h3>
-             <span className="text-[10px] text-slate-400">Synthesize & Download</span>
-          </div>
+             <div>
+                <h3 className="text-sm font-bold text-slate-100 leading-none">Export PSD</h3>
+                <span className="text-[10px] text-slate-400">Synthesis Engine</span>
+             </div>
+         </div>
+         
+         {/* Template Input Handle & Status */}
+         <div className="relative pl-4 py-1 flex items-center">
+             <Handle 
+               type="target" 
+               position={Position.Left} 
+               id="template-input" 
+               className="!w-3 !h-3 !-left-1.5 !bg-emerald-500 !border-2 !border-slate-800" 
+               title="Target Template Definition"
+             />
+             <span className={`text-xs font-mono ${isTemplateReady ? 'text-emerald-400' : 'text-slate-500 italic'}`}>
+                {isTemplateReady ? `${templateMetadata?.canvas.width}x${templateMetadata?.canvas.height} px` : 'Connect Template...'}
+             </span>
+         </div>
+      </div>
 
-          <div className="w-full space-y-2">
-              <div className="flex justify-between text-xs text-slate-400 border-b border-slate-800 pb-1">
-                  <span>Template Canvas</span>
-                  <span className={templateMetadata ? "text-emerald-400" : "text-slate-600"}>
-                      {templateMetadata ? `${templateMetadata.canvas.width}x${templateMetadata.canvas.height}` : "Waiting..."}
-                  </span>
+      {/* Dynamic Slots Area */}
+      <div className="bg-slate-900 p-2 space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
+          {!isTemplateReady ? (
+              <div className="text-[10px] text-slate-500 text-center py-4 border border-dashed border-slate-800 rounded mx-2 my-2">
+                  Waiting for Target Template...
               </div>
-              <div className="flex justify-between text-xs text-slate-400 border-b border-slate-800 pb-1">
-                  <span>Slots Filled</span>
-                  <span className={filledSlots > 0 ? "text-emerald-400" : "text-slate-600"}>
-                      {filledSlots} / {totalSlots}
-                  </span>
-              </div>
+          ) : (
+              containers.map(container => {
+                  const isFilled = slotConnections.has(container.name);
+                  
+                  return (
+                      <div 
+                        key={container.id} 
+                        className={`relative flex items-center justify-between p-2 pl-4 rounded border transition-colors ${
+                            isFilled 
+                            ? 'bg-indigo-900/20 border-indigo-500/30' 
+                            : 'bg-slate-800/50 border-slate-700/50'
+                        }`}
+                      >
+                          {/* Dynamic Handle for each container slot */}
+                          <Handle 
+                            type="target" 
+                            position={Position.Left} 
+                            id={`input-${container.name}`}
+                            className={`!w-3 !h-3 !-left-1.5 !border-2 transition-colors duration-200 ${
+                                isFilled 
+                                ? '!bg-indigo-500 !border-white' // High contrast white border when active
+                                : '!bg-slate-700 !border-slate-500'
+                            }`}
+                            title={`Input for ${container.name}`} 
+                          />
+                          
+                          <span className={`text-xs font-medium truncate flex-1 mr-2 ${isFilled ? 'text-indigo-200' : 'text-slate-400'}`}>
+                              {container.name}
+                          </span>
+                          
+                          {/* Visual Indicator */}
+                          {isFilled ? (
+                              <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                          ) : (
+                              <span className="text-[9px] text-slate-600">Empty</span>
+                          )}
+                      </div>
+                  );
+              })
+          )}
+      </div>
+
+      {/* Footer / Actions */}
+      <div className="p-3 bg-slate-800 border-t border-slate-700">
+          <div className="flex justify-between text-[10px] text-slate-400 mb-2 font-mono border-b border-slate-700 pb-2">
+              <span>ASSEMBLY STATUS</span>
+              <span className={isFullyAssembled ? 'text-emerald-400 font-bold' : 'text-orange-400'}>
+                  {filledSlots} / {totalSlots} SLOTS
+              </span>
           </div>
 
           {exportError && (
-              <div className="text-[10px] bg-red-900/40 text-red-200 p-2 rounded border border-red-800/50 w-full text-left">
+              <div className="text-[10px] bg-red-900/40 text-red-200 p-2 rounded border border-red-800/50 mb-2">
                   ERROR: {exportError}
               </div>
           )}
 
           <button
             onClick={handleExport}
-            disabled={!isReady || isExporting}
-            className={`w-full py-2 px-4 rounded text-xs font-bold uppercase tracking-wider transition-all
-                ${isReady && !isExporting
-                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg' 
-                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}
+            disabled={!isFullyAssembled || isExporting}
+            className={`w-full py-2 px-4 rounded text-xs font-bold uppercase tracking-wider transition-all shadow-lg
+                ${isFullyAssembled && !isExporting
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white cursor-pointer transform hover:-translate-y-0.5' 
+                    : 'bg-slate-700 text-slate-500 cursor-not-allowed border border-slate-600'}
             `}
           >
              {isExporting ? (
