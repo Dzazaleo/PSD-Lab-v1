@@ -18,6 +18,7 @@ interface InstanceData {
     bounds?: any;
   };
   payload: TransformedPayload | null;
+  strategyUsed?: boolean;
 }
 
 export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
@@ -28,7 +29,7 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
   const nodes = useNodes();
   
   // Consume data from Store
-  const { templateRegistry, resolvedRegistry, registerPayload, unregisterNode } = useProceduralStore();
+  const { templateRegistry, resolvedRegistry, analysisRegistry, registerPayload, unregisterNode } = useProceduralStore();
 
   // Cleanup
   useEffect(() => {
@@ -55,13 +56,19 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
              if (resolvedData) {
                  const context = resolvedData[sourceEdge.sourceHandle];
                  if (context) {
+                    // Logic to track binary source if passed through Analyst
+                    // If source is Analyst, we need to trace back? 
+                    // No, the Analyst registers the context, but the Binary ID inside context should point to LoadPSD.
+                    // But context structure doesn't hold NodeID. 
+                    // However, we can trust the 'loadPsdNode' lookup for binaries if singleton.
                     const binarySourceId = loadPsdNode ? loadPsdNode.id : sourceEdge.source;
                     sourceData = {
                         ready: true,
                         name: context.container.containerName,
                         nodeId: binarySourceId,
                         layers: context.layers,
-                        originalBounds: context.container.bounds
+                        originalBounds: context.container.bounds,
+                        sourceNodeId: sourceEdge.source // Keep track of immediate source for Strategy lookup
                     };
                  }
              }
@@ -79,7 +86,17 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                      containerName = containerName.replace('slot-bounds-', '');
                  }
 
-                 const container = template.containers.find(c => c.name === containerName);
+                 // If connected to Analyst 'target-out', the handle might be 'target-out'.
+                 // The Analyst creates a template with a container named matching the upstream.
+                 // We simply check if the handle matches a container, or take the first one if simplistic.
+                 
+                 let container = template.containers.find(c => c.name === containerName);
+                 if (!container && template.containers.length === 1) {
+                     // Fallback for Analyst single-container proxy
+                     container = template.containers[0];
+                     containerName = container.name;
+                 }
+
                  if (container) {
                      targetData = {
                          ready: true,
@@ -92,21 +109,60 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
 
         // 3. Compute Payload
         let payload: TransformedPayload | null = null;
+        let strategyUsed = false;
+
         if (sourceData.ready && targetData.ready) {
             const sourceRect = sourceData.originalBounds;
             const targetRect = targetData.bounds;
             
+            // MATH: Default Geometric Logic
             const ratioX = targetRect.w / sourceRect.w;
             const ratioY = targetRect.h / sourceRect.h;
-            const scale = Math.min(ratioX, ratioY);
+            let scale = Math.min(ratioX, ratioY);
+            let anchorX = targetRect.x;
+            let anchorY = targetRect.y;
+
+            // AI: Check for Strategy in Registry using the immediate Source Node ID
+            const strategy = analysisRegistry[sourceData.sourceNodeId];
+            
+            if (strategy) {
+                // Apply AI Scale
+                scale = strategy.suggestedScale;
+                strategyUsed = true;
+                
+                // Apply AI Anchor
+                // Calculate dimensions at new scale
+                const scaledW = sourceRect.w * scale;
+                const scaledH = sourceRect.h * scale;
+
+                // Horizontal Centering (Default)
+                anchorX = targetRect.x + (targetRect.w - scaledW) / 2;
+
+                // Vertical Anchor Logic
+                if (strategy.anchor === 'TOP') {
+                    anchorY = targetRect.y;
+                } else if (strategy.anchor === 'BOTTOM') {
+                    anchorY = targetRect.y + (targetRect.h - scaledH);
+                } else {
+                    // CENTER
+                    anchorY = targetRect.y + (targetRect.h - scaledH) / 2;
+                }
+            } else {
+                 // Default Centering for Math fallback
+                const scaledW = sourceRect.w * scale;
+                const scaledH = sourceRect.h * scale;
+                anchorX = targetRect.x + (targetRect.w - scaledW) / 2;
+                anchorY = targetRect.y + (targetRect.h - scaledH) / 2;
+            }
 
             const transformLayers = (layers: SerializableLayer[]): TransformedLayer[] => {
               return layers.map(layer => {
                 const relX = (layer.coords.x - sourceRect.x) / sourceRect.w;
                 const relY = (layer.coords.y - sourceRect.y) / sourceRect.h;
 
-                const newX = targetRect.x + (relX * targetRect.w);
-                const newY = targetRect.y + (relY * targetRect.h);
+                // New Position based on Anchor + Relative Pos * Scaled Size
+                const newX = anchorX + (relX * (sourceRect.w * scale));
+                const newY = anchorY + (relY * (sourceRect.h * scale));
 
                 const newW = layer.coords.w * scale;
                 const newH = layer.coords.h * scale;
@@ -145,12 +201,13 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
             index: i,
             source: sourceData,
             target: targetData,
-            payload
+            payload,
+            strategyUsed
         });
     }
 
     return result;
-  }, [instanceCount, edges, id, resolvedRegistry, templateRegistry, nodes]);
+  }, [instanceCount, edges, id, resolvedRegistry, templateRegistry, nodes, analysisRegistry]);
 
 
   // Sync Payloads to Store
@@ -234,11 +291,16 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                    {instance.payload ? (
                        <div className="flex flex-col w-full">
                            <div className="flex justify-between items-center">
-                               <span className="text-[10px] text-emerald-400 font-bold tracking-wide">READY</span>
+                               <div className="flex items-center space-x-2">
+                                   <span className="text-[10px] text-emerald-400 font-bold tracking-wide">READY</span>
+                                   {instance.strategyUsed && (
+                                       <span className="text-[8px] bg-pink-500/20 text-pink-300 px-1 rounded border border-pink-500/40">AI ENHANCED</span>
+                                   )}
+                               </div>
                                <span className="text-[10px] text-slate-400 font-mono">{instance.payload.scaleFactor.toFixed(2)}x Scale</span>
                            </div>
-                           <div className="w-full bg-slate-900 h-1 rounded overflow-hidden mt-1">
-                              <div className="h-full bg-emerald-500" style={{ width: '100%' }}></div>
+                           <div className={`w-full h-1 rounded overflow-hidden mt-1 ${instance.strategyUsed ? 'bg-pink-900' : 'bg-slate-900'}`}>
+                              <div className={`h-full ${instance.strategyUsed ? 'bg-pink-500' : 'bg-emerald-500'}`} style={{ width: '100%' }}></div>
                            </div>
                        </div>
                    ) : (

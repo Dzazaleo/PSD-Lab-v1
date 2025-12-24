@@ -20,6 +20,7 @@ import { DesignInfoNode } from './components/DesignInfoNode';
 import { TemplateSplitterNode } from './components/TemplateSplitterNode';
 import { ContainerResolverNode } from './components/ContainerResolverNode';
 import { RemapperNode } from './components/RemapperNode';
+import { DesignAnalystNode } from './components/DesignAnalystNode'; // NEW IMPORT
 import { ExportPSDNode } from './components/ExportPSDNode';
 import { PSDNodeData } from './types';
 import { ProceduralStoreProvider } from './store/ProceduralContext';
@@ -56,9 +57,15 @@ const initialNodes: Node<PSDNodeData>[] = [
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
+    id: 'node-analyst-1', // Pre-positioned Analyst Node
+    type: 'designAnalyst',
+    position: { x: 1300, y: 300 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+  {
     id: 'node-remapper-1',
     type: 'remapper',
-    position: { x: 1300, y: 400 },
+    position: { x: 1650, y: 400 },
     data: { fileName: null, template: null, validation: null, designLayers: null, remapperConfig: { targetContainerName: null } },
   },
   {
@@ -70,7 +77,7 @@ const initialNodes: Node<PSDNodeData>[] = [
   {
     id: 'node-export-1',
     type: 'exportPsd',
-    position: { x: 1650, y: 400 },
+    position: { x: 2000, y: 400 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   }
 ];
@@ -109,15 +116,8 @@ const App: React.FC = () => {
                console.warn("Invalid Connection: Target Splitter 'Template Input' requires a Target Template source.");
                return;
              }
-          } else {
-             // Constraint: Dynamic slots now expect a RemapperNode (Transformed Payload)
-             // Or ContainerResolver if bypassing remapping (legacy support, or simple copy)
-             // But strict pipeline suggests Remapper.
-             if (sourceNode.type !== 'remapper' && sourceNode.type !== 'containerResolver') {
-               console.warn("Invalid Connection: Target Slots require a Remapper or Resolver source.");
-               return;
-             }
           }
+          // Note: Target Splitter Slots can connect to DesignAnalyst OR Remapper
         }
         
         // Remapper Validation Rules (Dynamic Multi-Instance)
@@ -126,17 +126,34 @@ const App: React.FC = () => {
             
             // Allow dynamic Target Template Slots
             if (handle.startsWith('target-in-')) {
-                 if (sourceNode.type !== 'targetSplitter') {
-                     console.warn("Remapper 'Target' input requires a Target Splitter source.");
+                 // Remapper accepts Target Splitter OR Design Analyst (Proxy)
+                 if (sourceNode.type !== 'targetSplitter' && sourceNode.type !== 'designAnalyst') {
+                     console.warn("Remapper 'Target' input requires a Target Splitter or Design Analyst.");
                      return;
                  }
             } 
             // Allow dynamic Content Sources
             else if (handle.startsWith('source-in-')) {
-                 if (sourceNode.type !== 'containerResolver') {
-                     console.warn("Remapper 'Source' input requires a Container Resolver source.");
+                 // Remapper accepts Container Resolver OR Design Analyst (Proxy)
+                 if (sourceNode.type !== 'containerResolver' && sourceNode.type !== 'designAnalyst') {
+                     console.warn("Remapper 'Source' input requires a Container Resolver or Design Analyst.");
                      return;
                  }
+            }
+        }
+
+        // Design Analyst Validation Rules
+        if (targetNode.type === 'designAnalyst') {
+            if (params.targetHandle === 'source-in') {
+                if (sourceNode.type !== 'containerResolver') {
+                    console.warn("Design Analyst 'Source' requires a Container Resolver.");
+                    return;
+                }
+            } else if (params.targetHandle === 'target-in') {
+                if (sourceNode.type !== 'targetSplitter') {
+                    console.warn("Design Analyst 'Target' requires a Target Splitter.");
+                    return;
+                }
             }
         }
       }
@@ -171,6 +188,7 @@ const App: React.FC = () => {
     templateSplitter: TemplateSplitterNode,
     containerResolver: ContainerResolverNode,
     remapper: RemapperNode,
+    designAnalyst: DesignAnalystNode, // REGISTERED
     exportPsd: ExportPSDNode,
   }), []);
 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { Psd } from 'ag-psd';
-import { TemplateMetadata, MappingContext, TransformedPayload } from '../types';
+import { TemplateMetadata, MappingContext, TransformedPayload, LayoutStrategy } from '../types';
 
 interface ProceduralState {
   // Maps NodeID -> Raw PSD Object (Binary/Structure)
@@ -13,8 +13,10 @@ interface ProceduralState {
   resolvedRegistry: Record<string, Record<string, MappingContext>>;
 
   // Maps NodeID -> HandleID -> Transformed Payload (Ready for Assembly)
-  // Updated to support multiple outputs per node (e.g. Multi-Instance Remapper)
   payloadRegistry: Record<string, Record<string, TransformedPayload>>;
+
+  // Maps NodeID -> LayoutStrategy (AI Analysis)
+  analysisRegistry: Record<string, LayoutStrategy>;
 }
 
 interface ProceduralContextType extends ProceduralState {
@@ -22,6 +24,7 @@ interface ProceduralContextType extends ProceduralState {
   registerTemplate: (nodeId: string, template: TemplateMetadata) => void;
   registerResolved: (nodeId: string, handleId: string, context: MappingContext) => void;
   registerPayload: (nodeId: string, handleId: string, payload: TransformedPayload) => void;
+  registerAnalysis: (nodeId: string, strategy: LayoutStrategy) => void;
   unregisterNode: (nodeId: string) => void;
 }
 
@@ -32,6 +35,7 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
   const [templateRegistry, setTemplateRegistry] = useState<Record<string, TemplateMetadata>>({});
   const [resolvedRegistry, setResolvedRegistry] = useState<Record<string, Record<string, MappingContext>>>({});
   const [payloadRegistry, setPayloadRegistry] = useState<Record<string, Record<string, TransformedPayload>>>({});
+  const [analysisRegistry, setAnalysisRegistry] = useState<Record<string, LayoutStrategy>>({});
 
   const registerPsd = useCallback((nodeId: string, psd: Psd) => {
     setPsdRegistry(prev => ({ ...prev, [nodeId]: psd }));
@@ -39,10 +43,8 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
 
   const registerTemplate = useCallback((nodeId: string, template: TemplateMetadata) => {
     setTemplateRegistry(prev => {
-      // Prevent unnecessary updates if template is identical
       if (prev[nodeId] === template) return prev;
       if (JSON.stringify(prev[nodeId]) === JSON.stringify(template)) return prev;
-      
       return { ...prev, [nodeId]: template };
     });
   }, []);
@@ -51,8 +53,6 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     setResolvedRegistry(prev => {
       const nodeRecord = prev[nodeId] || {};
       const currentContext = nodeRecord[handleId];
-
-      // Deep equality check to prevent infinite loops from creating new object references
       if (currentContext === context) return prev;
       if (currentContext && JSON.stringify(currentContext) === JSON.stringify(context)) return prev;
       
@@ -84,23 +84,20 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, []);
 
+  const registerAnalysis = useCallback((nodeId: string, strategy: LayoutStrategy) => {
+    setAnalysisRegistry(prev => {
+        if (prev[nodeId] === strategy) return prev;
+        if (JSON.stringify(prev[nodeId]) === JSON.stringify(strategy)) return prev;
+        return { ...prev, [nodeId]: strategy };
+    });
+  }, []);
+
   const unregisterNode = useCallback((nodeId: string) => {
-    setPsdRegistry(prev => {
-      const { [nodeId]: _, ...rest } = prev;
-      return rest;
-    });
-    setTemplateRegistry(prev => {
-      const { [nodeId]: _, ...rest } = prev;
-      return rest;
-    });
-    setResolvedRegistry(prev => {
-      const { [nodeId]: _, ...rest } = prev;
-      return rest;
-    });
-    setPayloadRegistry(prev => {
-      const { [nodeId]: _, ...rest } = prev;
-      return rest;
-    });
+    setPsdRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
+    setTemplateRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
+    setResolvedRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
+    setPayloadRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
+    setAnalysisRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
   }, []);
 
   const value = useMemo(() => ({
@@ -108,12 +105,15 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     templateRegistry,
     resolvedRegistry,
     payloadRegistry,
+    analysisRegistry,
     registerPsd,
     registerTemplate,
     registerResolved,
     registerPayload,
+    registerAnalysis,
     unregisterNode
-  }), [psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, registerPsd, registerTemplate, registerResolved, registerPayload, unregisterNode]);
+  }), [psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, analysisRegistry, 
+       registerPsd, registerTemplate, registerResolved, registerPayload, registerAnalysis, unregisterNode]);
 
   return (
     <ProceduralContext.Provider value={value}>

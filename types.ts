@@ -1,5 +1,7 @@
 import { Psd } from 'ag-psd';
 
+export const MAX_BOUNDARY_VIOLATION_PERCENT = 0.03;
+
 export interface ContainerDefinition {
   id: string;
   name: string;
@@ -56,6 +58,25 @@ export interface SerializableLayer {
 }
 
 export type RemapStrategy = 'STRETCH' | 'UNIFORM_FIT' | 'UNIFORM_FILL' | 'NONE';
+
+export interface LayerOverride {
+  layerId: string;
+  xOffset: number;
+  yOffset: number;
+  individualScale: number;
+}
+
+export interface LayoutStrategy {
+  suggestedScale: number;
+  anchor: 'TOP' | 'CENTER' | 'BOTTOM' | 'STRETCH';
+  generativePrompt: string;
+  reasoning: string;
+  overrides?: LayerOverride[];
+  safetyReport?: {
+    allowedBleed: boolean;
+    violationCount: number;
+  };
+}
 
 export interface TransformedLayer extends SerializableLayer {
   transform: {
@@ -126,6 +147,7 @@ export interface PSDNodeData {
   targetAssembly?: TargetAssembly | null; // For TargetSplitterNode output
   remapperConfig?: RemapperConfig | null; // For RemapperNode state
   transformedPayload?: TransformedPayload | null; // For RemapperNode output
+  layoutStrategy?: LayoutStrategy | null; // For DesignAnalystNode output
   error?: string | null;
 }
 
