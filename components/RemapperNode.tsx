@@ -1,6 +1,6 @@
 import React, { memo, useState, useMemo, useEffect } from 'react';
 import { Handle, Position, NodeProps, useEdges, useReactFlow, useNodes } from 'reactflow';
-import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer } from '../types';
+import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer, MAX_BOUNDARY_VIOLATION_PERCENT } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 
 interface InstanceData {
@@ -56,11 +56,6 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
              if (resolvedData) {
                  const context = resolvedData[sourceEdge.sourceHandle];
                  if (context) {
-                    // Logic to track binary source if passed through Analyst
-                    // If source is Analyst, we need to trace back? 
-                    // No, the Analyst registers the context, but the Binary ID inside context should point to LoadPSD.
-                    // But context structure doesn't hold NodeID. 
-                    // However, we can trust the 'loadPsdNode' lookup for binaries if singleton.
                     const binarySourceId = loadPsdNode ? loadPsdNode.id : sourceEdge.source;
                     sourceData = {
                         ready: true,
@@ -68,7 +63,7 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                         nodeId: binarySourceId,
                         layers: context.layers,
                         originalBounds: context.container.bounds,
-                        sourceNodeId: sourceEdge.source // Keep track of immediate source for Strategy lookup
+                        sourceNodeId: sourceEdge.source
                     };
                  }
              }
@@ -86,13 +81,8 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                      containerName = containerName.replace('slot-bounds-', '');
                  }
 
-                 // If connected to Analyst 'target-out', the handle might be 'target-out'.
-                 // The Analyst creates a template with a container named matching the upstream.
-                 // We simply check if the handle matches a container, or take the first one if simplistic.
-                 
                  let container = template.containers.find(c => c.name === containerName);
                  if (!container && template.containers.length === 1) {
-                     // Fallback for Analyst single-container proxy
                      container = template.containers[0];
                      containerName = container.name;
                  }
@@ -126,12 +116,9 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
             const strategy = analysisRegistry[sourceData.sourceNodeId];
             
             if (strategy) {
-                // Apply AI Scale
                 scale = strategy.suggestedScale;
                 strategyUsed = true;
                 
-                // Apply AI Anchor
-                // Calculate dimensions at new scale
                 const scaledW = sourceRect.w * scale;
                 const scaledH = sourceRect.h * scale;
 
@@ -144,56 +131,86 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                 } else if (strategy.anchor === 'BOTTOM') {
                     anchorY = targetRect.y + (targetRect.h - scaledH);
                 } else {
-                    // CENTER
                     anchorY = targetRect.y + (targetRect.h - scaledH) / 2;
                 }
             } else {
-                 // Default Centering for Math fallback
                 const scaledW = sourceRect.w * scale;
                 const scaledH = sourceRect.h * scale;
                 anchorX = targetRect.x + (targetRect.w - scaledW) / 2;
                 anchorY = targetRect.y + (targetRect.h - scaledH) / 2;
             }
 
-            const transformLayers = (layers: SerializableLayer[]): TransformedLayer[] => {
+            // --- RECURSIVE TRANSFORMATION ENGINE ---
+            const transformLayers = (
+                layers: SerializableLayer[], 
+                parentDeltaX: number = 0, 
+                parentDeltaY: number = 0
+            ): TransformedLayer[] => {
               return layers.map(layer => {
+                // 1. Calculate Geometric Baseline (Global Relative)
+                // This places the layer based on standard scaling/centering rules
                 const relX = (layer.coords.x - sourceRect.x) / sourceRect.w;
                 const relY = (layer.coords.y - sourceRect.y) / sourceRect.h;
 
-                // 1. Calculate Base Geometry (Global Strategy)
-                let newX = anchorX + (relX * (sourceRect.w * scale));
-                let newY = anchorY + (relY * (sourceRect.h * scale));
+                const geomX = anchorX + (relX * (sourceRect.w * scale));
+                const geomY = anchorY + (relY * (sourceRect.h * scale));
 
+                // 2. Apply Inherited Delta (Hierarchy Preservation)
+                // If a parent moved, this layer moves with it by default
+                let finalX = geomX + parentDeltaX;
+                let finalY = geomY + parentDeltaY;
+                
                 let layerScaleX = scale;
                 let layerScaleY = scale;
 
-                // 2. Inject AI Overrides (Semantic Recomposition)
-                // Recursive Injection: Check if the AI has specific instructions for this layer ID
+                // 3. Apply AI Overrides (Local-to-Global Injection)
                 const override = strategy?.overrides?.find(o => o.layerId === layer.id);
+                let currentDeltaX = parentDeltaX;
+                let currentDeltaY = parentDeltaY;
 
                 if (override) {
-                   // Apply offsets (AI provides pixel deltas relative to the scaled position)
-                   newX += override.xOffset;
-                   newY += override.yOffset;
-                   
-                   // Apply individual scale (Multiplicative logic)
+                   // Semantic Recomposition: AI dictates exact position in Target Context
+                   // We switch to absolute anchoring based on Target Top-Left
+                   const aiX = targetRect.x + override.xOffset;
+                   const aiY = targetRect.y + override.yOffset;
+
+                   // Override dictates the new position
+                   finalX = aiX;
+                   finalY = aiY;
+
+                   // Calculate the NEW delta created by this override to pass to children
+                   // This ensures children of an overridden group follow the group's new location
+                   currentDeltaX = finalX - geomX;
+                   currentDeltaY = finalY - geomY;
+
+                   // Apply individual scale
                    layerScaleX *= override.individualScale;
                    layerScaleY *= override.individualScale;
                 }
+
+                // 4. Boundary Enforcement (Clamping)
+                const bleedY = targetRect.h * MAX_BOUNDARY_VIOLATION_PERCENT;
+                const minY = targetRect.y - bleedY;
+                const maxY = targetRect.y + targetRect.h + bleedY;
+
+                // Clamp Y to prevent flying off canvas
+                finalY = Math.max(minY, Math.min(finalY, maxY));
 
                 const newW = layer.coords.w * layerScaleX;
                 const newH = layer.coords.h * layerScaleY;
 
                 return {
-                  ...layer, // PROPERTY RETENTION: Preserve opacity, blendMode, isVisible, etc.
-                  coords: { x: newX, y: newY, w: newW, h: newH },
+                  ...layer,
+                  coords: { x: finalX, y: finalY, w: newW, h: newH },
                   transform: {
                     scaleX: layerScaleX,
                     scaleY: layerScaleY,
-                    offsetX: newX,
-                    offsetY: newY
+                    offsetX: finalX,
+                    offsetY: finalY
                   },
-                  children: layer.children ? transformLayers(layer.children) : undefined
+                  children: layer.children 
+                    ? transformLayers(layer.children, currentDeltaX, currentDeltaY) 
+                    : undefined
                 };
               });
             };

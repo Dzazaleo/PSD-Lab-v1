@@ -84,8 +84,8 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                   // Relative dimensions to the source container
                   relX: (l.coords.x - sourceData.container.bounds.x) / sourceW,
                   relY: (l.coords.y - sourceData.container.bounds.y) / sourceH,
-                  relW: l.coords.w / sourceW,
-                  relH: l.coords.h / sourceH
+                  width: l.coords.w,
+                  height: l.coords.h
               });
               if (l.children) {
                   flat = flat.concat(flattenLayers(l.children, depth + 1));
@@ -97,33 +97,30 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
       const layerAnalysisData = flattenLayers(sourceData.layers as SerializableLayer[]);
 
       const prompt = `
-        ROLE: Senior PSD Compositor & Layout Automation Engine.
-        GOAL: Perform "Geometry-First Semantic Recomposition". Map source layers into the target slot.
+        ROLE: Precision Drafting Engine & Senior PSD Compositor.
+        GOAL: Perform "Geometry-First Semantic Recomposition" using a STRICT GRID SYSTEM.
 
         CONTEXT:
-        - Source Container Aspect Ratio: ${(sourceW / sourceH).toFixed(2)}
-        - Target Slot Aspect Ratio: ${(targetW / targetH).toFixed(2)}
-        - Allowable Boundary Bleed: ${MAX_BOUNDARY_VIOLATION_PERCENT * 100}%
+        - Source Container Dimensions: ${sourceW}px x ${sourceH}px (Ratio: ${(sourceW / sourceH).toFixed(2)})
+        - Target Slot Dimensions: ${targetW}px x ${targetH}px (Ratio: ${(targetW / targetH).toFixed(2)})
+        - Allowable Boundary Bleed: ${MAX_BOUNDARY_VIOLATION_PERCENT * 100}% (${(targetH * MAX_BOUNDARY_VIOLATION_PERCENT).toFixed(0)}px)
         
         LAYER HIERARCHY (JSON):
-        ${JSON.stringify(layerAnalysisData.slice(0, 15))} ... (truncated if long)
+        ${JSON.stringify(layerAnalysisData.slice(0, 20))} ...
 
-        INSTRUCTIONS:
-        1. INTELLIGENCE PRIORITY:
-           - Analyze Internal Hierarchy: Do not just scale the parent group. Look at the sub-layers.
-           - Recomposition: If Target is TALLER than Source, identify "floating" elements (Logos, Titles, Buttons) that can be moved vertically to fill space.
-           - Fidelity Preservation: Do NOT suggest generative fill if moving existing layers solves the layout.
+        CRITICAL INSTRUCTION - THE GRID SYSTEM:
+        If the Target is significantly TALLER than the Source (e.g. 0.5 ratio vs 1.7 ratio):
+        1. DIVIDE the Target Height (${targetH}px) by the number of primary visual elements to create virtual "slots" (e.g. if 4 items, slot height = ${Math.floor(targetH / 4)}px).
+        2. ASSIGN each primary layer to a specific vertical slot (Quadrants 1, 2, 3, 4...).
+        3. CENTER the layer within that quadrant.
+        4. CALCULATE 'yOffset' as the integer distance from the Target Container TOP (0).
         
-        2. LOGIC:
-           - "Background" layers (large area, low depth) should usually scale to fill (COVER).
-           - "UI/Text" layers should be anchored (Top-Left, Bottom-Center, etc.) and receive 'individualScale' adjustments if needed.
-           - Calculate 'xOffset' and 'yOffset' in PIXELS relative to the new scaled position.
+        ZERO-TOLERANCE MATH:
+        - Any layer whose (yOffset + (height * suggestedScale)) > ${targetH * (1 + MAX_BOUNDARY_VIOLATION_PERCENT)} is a CRITICAL FAILURE.
+        - You MUST validate your math. Do not guess.
         
-        3. OUTPUT SCHEMA:
-           - suggestedScale: Global scale for the root group.
-           - anchor: Global anchor.
-           - overrides: Array of adjustments for specific layer IDs to break them out of the global transform.
-           - safetyReport: Verify if your suggestions keep critical content within bounds.
+        HIERARCHY AWARENESS:
+        - Explicitly map key layers (Title, CTA, Images) to specific yOffsets (e.g. 0, 200, 400) based on the calculated grid.
       `;
 
       const response = await ai.models.generateContent({
@@ -134,20 +131,20 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
             responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                    suggestedScale: { type: Type.NUMBER, description: "Base scale factor for the entire group." },
+                    suggestedScale: { type: Type.NUMBER, description: "Base scale factor." },
                     anchor: { type: Type.STRING, enum: ['TOP', 'CENTER', 'BOTTOM', 'STRETCH'] },
                     generativePrompt: { type: Type.STRING },
                     reasoning: { type: Type.STRING },
                     overrides: {
                         type: Type.ARRAY,
-                        description: "Specific adjustments for sub-layers to recompose the layout.",
+                        description: "Precise pixel coordinates for layer recomposition.",
                         items: {
                             type: Type.OBJECT,
                             properties: {
                                 layerId: { type: Type.STRING },
-                                xOffset: { type: Type.NUMBER, description: "Horizontal shift in pixels" },
-                                yOffset: { type: Type.NUMBER, description: "Vertical shift in pixels" },
-                                individualScale: { type: Type.NUMBER, description: "Layer specific scale multiplier (usually 1.0)" }
+                                xOffset: { type: Type.NUMBER, description: "Distance in pixels from Target LEFT." },
+                                yOffset: { type: Type.NUMBER, description: "Distance in pixels from Target TOP." },
+                                individualScale: { type: Type.NUMBER, description: "Scale multiplier." }
                             },
                             required: ['layerId', 'xOffset', 'yOffset', 'individualScale']
                         }
