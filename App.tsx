@@ -120,12 +120,23 @@ const App: React.FC = () => {
           }
         }
         
-        // Remapper Validation Rules
+        // Remapper Validation Rules (Dynamic Multi-Instance)
         if (targetNode.type === 'remapper') {
-            if (params.targetHandle === 'template-input') {
-                if (sourceNode.type !== 'targetTemplate') return;
-            } else if (params.targetHandle === 'source-input') {
-                if (sourceNode.type !== 'containerResolver') return;
+            const handle = params.targetHandle || '';
+            
+            // Allow dynamic Target Template Slots
+            if (handle.startsWith('target-in-')) {
+                 if (sourceNode.type !== 'targetSplitter') {
+                     console.warn("Remapper 'Target' input requires a Target Splitter source.");
+                     return;
+                 }
+            } 
+            // Allow dynamic Content Sources
+            else if (handle.startsWith('source-in-')) {
+                 if (sourceNode.type !== 'containerResolver') {
+                     console.warn("Remapper 'Source' input requires a Container Resolver source.");
+                     return;
+                 }
             }
         }
       }

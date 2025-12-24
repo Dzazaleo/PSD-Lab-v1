@@ -33,15 +33,25 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       // Look for edges connected to our dynamic input handles (e.g., input-SYMBOLS)
       if (!edge.targetHandle?.startsWith('input-')) return;
 
+      // STRICT VALIDATION: Only accept connections from Remapper Output handles
+      // This supports the multi-instance logic where outputs are named 'result-out-${index}'
+      if (!edge.sourceHandle?.startsWith('result-out-')) return;
+
       // Extract container name from handle ID
       const containerName = edge.targetHandle.replace('input-', '');
       
-      // Fetch payload directly from store using source node ID
-      const payload = payloadRegistry[edge.source];
+      // Fetch payload from store using source node ID AND source Handle ID (New Structure)
+      const sourceNodePayloads = payloadRegistry[edge.source];
+      const payload = sourceNodePayloads ? sourceNodePayloads[edge.sourceHandle] : undefined;
 
       if (payload) {
-         // Verify that the payload is actually intended for this slot if needed
-         map.set(containerName, payload);
+         // MAPPING CONFIRMATION: Verify payload intends to target this specific slot
+         // If a user connects "SYMBOLS" output to "BG" slot, we reject it to ensure integrity.
+         if (payload.targetContainer === containerName) {
+             map.set(containerName, payload);
+         } else {
+             console.warn(`Export Assembly Mismatch: Slot '${containerName}' received payload targeting '${payload.targetContainer}'`);
+         }
       }
     });
 
