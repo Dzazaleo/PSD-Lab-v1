@@ -153,6 +153,7 @@ export interface PSDNodeData {
   // Dynamic State Persistence
   channelCount?: number;
   instanceCount?: number;
+  selectedModel?: 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
 }
 
 export interface TargetTemplateData {

@@ -1,18 +1,53 @@
-import React, { memo, useState, useEffect, useMemo } from 'react';
-import { Handle, Position, NodeProps, useEdges, useNodes, Node } from 'reactflow';
+import React, { memo, useState, useEffect, useMemo, useCallback } from 'react';
+import { Handle, Position, NodeProps, useEdges, useNodes, Node, useReactFlow } from 'reactflow';
 import { PSDNodeData, MappingContext, TemplateMetadata, LayoutStrategy, SerializableLayer, MAX_BOUNDARY_VIOLATION_PERCENT } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
-import { GoogleGenAI, Type, SchemaType } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
-export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
+interface ModelConfig {
+  apiModel: string;
+  label: string;
+  badgeClass: string;
+  headerClass: string;
+  thinkingBudget?: number;
+}
+
+// Model Configurations
+const MODELS: Record<string, ModelConfig> = {
+  'gemini-3-flash': {
+    apiModel: 'gemini-3-flash-preview',
+    label: 'FLASH',
+    badgeClass: 'bg-yellow-500 text-yellow-950 border-yellow-400',
+    headerClass: 'border-yellow-500/50 bg-yellow-900/20'
+  },
+  'gemini-3-pro': {
+    apiModel: 'gemini-3-pro-preview',
+    label: 'PRO',
+    badgeClass: 'bg-blue-600 text-white border-blue-500',
+    headerClass: 'border-blue-500/50 bg-blue-900/20'
+  },
+  'gemini-3-pro-thinking': {
+    apiModel: 'gemini-3-pro-preview',
+    label: 'DEEP THINKING',
+    badgeClass: 'bg-purple-600 text-white border-purple-500',
+    headerClass: 'border-purple-500/50 bg-purple-900/20',
+    thinkingBudget: 16384
+  }
+};
+
+export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [strategy, setStrategy] = useState<LayoutStrategy | null>(null);
+  const [strategy, setStrategy] = useState<LayoutStrategy | null>(data.layoutStrategy || null);
   const [error, setError] = useState<string | null>(null);
   
   const edges = useEdges();
-  const nodes = useNodes();
+  const { setNodes } = useReactFlow();
   
   const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, registerAnalysis, unregisterNode } = useProceduralStore();
+
+  // Determine current model state (Persistent)
+  const selectedModelKey = data.selectedModel || 'gemini-3-flash';
+  const activeModelConfig = MODELS[selectedModelKey];
 
   // 1. Upstream Data Retrieval
   const sourceData = useMemo(() => {
@@ -55,6 +90,25 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
     }
   }, [id, sourceData, targetData, registerResolved, registerTemplate]);
 
+  // Handle Model Change
+  const handleModelChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newModel = e.target.value as keyof typeof MODELS;
+    setNodes((nds) => 
+      nds.map((node) => {
+        if (node.id === id) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              selectedModel: newModel
+            }
+          };
+        }
+        return node;
+      })
+    );
+  }, [id, setNodes]);
+
   // 3. AI Analysis Logic
   const handleAnalyze = async () => {
     if (!sourceData || !targetData) return;
@@ -62,10 +116,8 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
     setError(null);
 
     try {
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) throw new Error("API_KEY not set");
-
-      const ai = new GoogleGenAI({ apiKey });
+      // Assuming process.env.API_KEY is available as per guidelines
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
       const sourceW = sourceData.container.bounds.w;
       const sourceH = sourceData.container.bounds.h;
@@ -123,48 +175,61 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
         - Explicitly map key layers (Title, CTA, Images) to specific yOffsets (e.g. 0, 200, 400) based on the calculated grid.
       `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    suggestedScale: { type: Type.NUMBER, description: "Base scale factor." },
-                    anchor: { type: Type.STRING, enum: ['TOP', 'CENTER', 'BOTTOM', 'STRETCH'] },
-                    generativePrompt: { type: Type.STRING },
-                    reasoning: { type: Type.STRING },
-                    overrides: {
-                        type: Type.ARRAY,
-                        description: "Precise pixel coordinates for layer recomposition.",
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                layerId: { type: Type.STRING },
-                                xOffset: { type: Type.NUMBER, description: "Distance in pixels from Target LEFT." },
-                                yOffset: { type: Type.NUMBER, description: "Distance in pixels from Target TOP." },
-                                individualScale: { type: Type.NUMBER, description: "Scale multiplier." }
-                            },
-                            required: ['layerId', 'xOffset', 'yOffset', 'individualScale']
-                        }
-                    },
-                    safetyReport: {
+      // Configure Request based on selected model
+      const requestConfig: any = {
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                suggestedScale: { type: Type.NUMBER, description: "Base scale factor." },
+                anchor: { type: Type.STRING, enum: ['TOP', 'CENTER', 'BOTTOM', 'STRETCH'] },
+                generativePrompt: { type: Type.STRING },
+                reasoning: { type: Type.STRING },
+                overrides: {
+                    type: Type.ARRAY,
+                    description: "Precise pixel coordinates for layer recomposition.",
+                    items: {
                         type: Type.OBJECT,
                         properties: {
-                            allowedBleed: { type: Type.BOOLEAN },
-                            violationCount: { type: Type.INTEGER }
+                            layerId: { type: Type.STRING },
+                            xOffset: { type: Type.NUMBER, description: "Distance in pixels from Target LEFT." },
+                            yOffset: { type: Type.NUMBER, description: "Distance in pixels from Target TOP." },
+                            individualScale: { type: Type.NUMBER, description: "Scale multiplier." }
                         },
-                        required: ['allowedBleed', 'violationCount']
+                        required: ['layerId', 'xOffset', 'yOffset', 'individualScale']
                     }
                 },
-                required: ['suggestedScale', 'anchor', 'generativePrompt', 'reasoning', 'overrides', 'safetyReport']
-            }
+                safetyReport: {
+                    type: Type.OBJECT,
+                    properties: {
+                        allowedBleed: { type: Type.BOOLEAN },
+                        violationCount: { type: Type.INTEGER }
+                    },
+                    required: ['allowedBleed', 'violationCount']
+                }
+            },
+            required: ['suggestedScale', 'anchor', 'generativePrompt', 'reasoning', 'overrides', 'safetyReport']
         }
+      };
+
+      // Add Thinking Config if applicable
+      if (activeModelConfig.thinkingBudget) {
+        requestConfig.thinkingConfig = { thinkingBudget: activeModelConfig.thinkingBudget };
+      }
+
+      const response = await ai.models.generateContent({
+        model: activeModelConfig.apiModel,
+        contents: prompt,
+        config: requestConfig
       });
 
       const json = JSON.parse(response.text || '{}');
       setStrategy(json);
+      
+      // Update Node Data for Persistence of the result
+      setNodes((nds) => 
+        nds.map((n) => n.id === id ? { ...n, data: { ...n.data, layoutStrategy: json } } : n)
+      );
       registerAnalysis(id, json);
 
     } catch (e: any) {
@@ -195,23 +260,41 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
   const overrideCount = strategy?.overrides?.length || 0;
 
   return (
-    <div className="w-80 bg-slate-900 rounded-lg shadow-2xl border border-pink-500/50 overflow-hidden font-sans flex flex-col">
+    <div className={`w-80 rounded-lg shadow-2xl border overflow-hidden font-sans flex flex-col transition-colors duration-300 ${activeModelConfig.headerClass.replace('bg-', 'border-')}`}>
       {/* Inputs */}
       <Handle type="target" position={Position.Top} id="source-in" className="!bg-indigo-500" style={{ left: '30%' }} title="Source Context" />
       <Handle type="target" position={Position.Top} id="target-in" className="!bg-emerald-500" style={{ left: '70%' }} title="Target Slot" />
 
       {/* Header */}
-      <div className="bg-pink-900/30 p-2 border-b border-pink-800/50 flex items-center justify-between">
+      <div className={`p-2 border-b flex items-center justify-between transition-colors duration-300 ${activeModelConfig.headerClass}`}>
          <div className="flex items-center space-x-2">
-           <svg className="w-4 h-4 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+           <svg className={`w-4 h-4 ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-600' : 'text-slate-100'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
            </svg>
-           <span className="text-sm font-bold text-pink-100">Design Analyst</span>
+           <span className={`text-sm font-bold ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-800' : 'text-slate-100'}`}>Design Analyst</span>
          </div>
-         <span className="text-[9px] px-1.5 py-0.5 rounded bg-pink-500 text-white font-mono">GEMINI</span>
+         
+         {/* Model Selector Badge */}
+         <div className="relative group">
+             <select 
+                value={selectedModelKey}
+                onChange={handleModelChange}
+                className={`appearance-none text-[9px] px-2 py-0.5 pr-4 rounded font-mono font-bold cursor-pointer outline-none border transition-colors duration-300 ${activeModelConfig.badgeClass}`}
+             >
+                 <option value="gemini-3-flash" className="text-black bg-white">FLASH</option>
+                 <option value="gemini-3-pro" className="text-black bg-white">PRO</option>
+                 <option value="gemini-3-pro-thinking" className="text-black bg-white">DEEP THINKING</option>
+             </select>
+             {/* Custom dropdown arrow to match styling */}
+             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1">
+                <svg className="h-2 w-2 fill-current opacity-75" viewBox="0 0 20 20">
+                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                </svg>
+             </div>
+         </div>
       </div>
 
-      <div className="p-3 space-y-3">
+      <div className="p-3 space-y-3 bg-slate-900">
          {/* Ghost Preview */}
          <div className="flex items-center justify-around bg-slate-800/50 p-2 rounded border border-slate-700">
              <div className="flex flex-col items-center space-y-1">
@@ -231,9 +314,9 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
 
          {/* Strategy Card */}
          {strategy && (
-             <div className="bg-slate-800 border-l-2 border-pink-500 p-2 rounded text-[10px] space-y-2 animate-fadeIn">
+             <div className={`bg-slate-800 border-l-2 p-2 rounded text-[10px] space-y-2 animate-fadeIn ${activeModelConfig.badgeClass.replace('bg-', 'border-').split(' ')[2]}`}>
                  <div className="flex justify-between border-b border-slate-700 pb-1">
-                    <span className="text-pink-300 font-bold">SEMANTIC RECOMPOSITION</span>
+                    <span className={`font-bold ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-400' : 'text-blue-300'}`}>SEMANTIC RECOMPOSITION</span>
                     <span className="text-slate-400">{strategy.anchor}</span>
                  </div>
                  
@@ -262,7 +345,7 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                  )}
 
                  {strategy.generativePrompt && (
-                     <div className="bg-black/30 p-1.5 rounded text-pink-200/80 font-mono text-[9px] border border-pink-900/30 truncate">
+                     <div className="bg-black/30 p-1.5 rounded text-slate-300/80 font-mono text-[9px] border border-slate-700/50 truncate">
                         GEN: {strategy.generativePrompt}
                      </div>
                  )}
@@ -278,9 +361,9 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
          <button 
             onClick={handleAnalyze}
             disabled={!isReady || isAnalyzing}
-            className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider transition-all
+            className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider transition-all shadow-lg
                ${isReady && !isAnalyzing 
-                  ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white shadow-lg' 
+                  ? activeModelConfig.badgeClass.replace('text-yellow-950', 'text-white') // Ensure text contrast on button
                   : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
                }`}
          >
