@@ -39,8 +39,7 @@ export const TemplateSplitterNode = memo(({ id }: NodeProps) => {
         type="target"
         position={Position.Left}
         id="input"
-        className="!w-3 !h-3 !bg-blue-500 !border-2 !border-slate-800"
-        style={{ top: '50%', transform: 'translateY(-50%)' }}
+        className="!w-3 !h-3 !top-8 !bg-blue-500 !border-2 !border-slate-800"
       />
 
       {/* Header */}

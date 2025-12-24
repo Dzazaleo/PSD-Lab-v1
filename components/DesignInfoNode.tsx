@@ -85,14 +85,15 @@ export const DesignInfoNode = memo(({ id }: NodeProps) => {
 
   return (
     <div className="w-64 bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans flex flex-col h-auto max-h-96">
-      {/* Input Handle */}
+      {/* Input Handle - Matching TargetSplitter Location */}
       <Handle
         type="target"
         position={Position.Left}
-        className="w-3 h-3 bg-blue-500 border-2 border-slate-800"
+        className="!w-3 !h-3 !top-8 !bg-blue-500 !border-2 !border-slate-800"
+        title="Input"
       />
 
-      {/* Header */}
+      {/* Header Container */}
       <div className="bg-slate-900 p-2 border-b border-slate-700 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2">
           <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -168,7 +168,7 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
   };
 
   return (
-    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
+    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors relative ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
       {/* Title Header */}
       <div className={`p-2 border-b flex items-center justify-between ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-slate-900 border-slate-700'}`}>
         <div className="flex items-center space-x-2">
@@ -302,14 +302,15 @@ export const LoadPSDNode = memo(({ data, id }: NodeProps<PSDNodeData>) => {
         )}
       </div>
 
-      {/* Output Handle */}
+      {/* Output Handle - Centered Right */}
       <Handle
         type="source"
         position={Position.Right}
         id="psd-output"
         isConnectable={isDataLoaded}
         title="Output: Serializable Template Metadata & Design Layers"
-        className={`w-3 h-3 border-2 transition-colors duration-300 ${isDataLoaded ? 'bg-blue-500 border-white hover:bg-blue-400' : 'bg-slate-600 border-slate-400'}`}
+        className={`!w-3 !h-3 !border-2 transition-colors duration-300 ${isDataLoaded ? '!bg-blue-500 !border-white hover:!bg-blue-400' : '!bg-slate-600 !border-slate-400'}`}
+        style={{ right: -6, top: '50%', transform: 'translateY(-50%)' }}
       />
     </div>
   );

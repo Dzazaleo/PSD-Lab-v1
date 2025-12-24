@@ -272,74 +272,94 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   }, [id, setNodes]);
 
   return (
-    <div className="min-w-[280px] bg-slate-800 rounded-lg shadow-xl border border-indigo-500/50 overflow-hidden font-sans relative flex flex-col">
+    // Removed overflow-hidden from root to prevent handle clipping
+    <div className="min-w-[280px] bg-slate-800 rounded-lg shadow-xl border border-indigo-500/50 font-sans relative flex flex-col">
       
       {/* Header */}
-      <div className="bg-indigo-900/80 p-2 border-b border-indigo-800 flex items-center justify-between shrink-0">
+      <div className="bg-indigo-900/80 p-2 border-b border-indigo-800 flex items-center justify-between shrink-0 rounded-t-lg">
          <div className="flex items-center space-x-2">
            <svg className="w-4 h-4 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
            </svg>
            <span className="text-sm font-semibold text-indigo-100">Procedural Remapper</span>
          </div>
+         <span className="text-[10px] text-indigo-400/70 font-mono">TRANSFORMER</span>
       </div>
 
       {/* Instances List */}
       <div className="flex flex-col">
           {instances.map((instance) => (
-             <div key={instance.index} className="relative p-3 border-b border-slate-700/50 bg-slate-800 space-y-3 hover:bg-slate-700/20 transition-colors">
+             <div key={instance.index} className="relative p-3 border-b border-slate-700/50 bg-slate-800 space-y-3 hover:bg-slate-700/20 transition-colors first:rounded-t-none">
                 
                 {/* Inputs Row */}
-                <div className="grid grid-cols-1 gap-3">
-                   {/* Source */}
-                   <div className="relative flex items-center justify-between">
-                      <div className="flex flex-col">
-                          <label className="text-[8px] uppercase text-slate-500 font-bold tracking-wider mb-0.5 ml-1">Source Input</label>
-                          <div className={`text-xs px-2 py-1 rounded border min-w-[120px] transition-colors ${
+                <div className="flex flex-col space-y-3">
+                   {/* Source Input Row */}
+                   <div className="relative flex items-center justify-between group">
+                      <div className="flex flex-col w-full">
+                          <div className="flex items-center justify-between mb-0.5">
+                             <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider ml-1">Source Input</label>
+                             {instance.source.ready && <span className="text-[8px] text-blue-400 font-mono">LINKED</span>}
+                          </div>
+                          
+                          <div className={`relative text-xs px-3 py-1.5 rounded border transition-colors ${
                              instance.source.ready 
-                               ? 'bg-indigo-900/30 border-indigo-500/30 text-indigo-200' 
+                               ? 'bg-indigo-900/30 border-indigo-500/30 text-indigo-200 shadow-sm' 
                                : 'bg-slate-900 border-slate-700 text-slate-500 italic'
                            }`}>
-                             {instance.source.ready ? instance.source.name : 'Waiting...'}
+                             {/* Input Handle - Docked on the specific Input Box */}
+                             <Handle 
+                                type="target" 
+                                position={Position.Left} 
+                                id={`source-in-${instance.index}`} 
+                                className={`!w-3 !h-3 !-left-4 !border-2 z-50 transition-colors duration-200 ${
+                                    instance.source.ready 
+                                    ? '!bg-indigo-500 !border-white' 
+                                    : '!bg-slate-700 !border-slate-500 group-hover:!bg-slate-600'
+                                }`} 
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title={`Source for Instance ${instance.index}`}
+                              />
+                             {instance.source.ready ? instance.source.name : 'Connect Source...'}
                           </div>
                       </div>
-                      <Handle 
-                        type="target" 
-                        position={Position.Left} 
-                        id={`source-in-${instance.index}`} 
-                        className={`!w-3 !h-3 !border-2 ${instance.source.ready ? '!bg-indigo-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-                        style={{ top: '65%', left: '-13px' }}
-                        title={`Source for Instance ${instance.index}`}
-                      />
                    </div>
 
-                   {/* Target */}
-                   <div className="relative flex items-center justify-between">
-                      <div className="flex flex-col">
-                          <label className="text-[8px] uppercase text-slate-500 font-bold tracking-wider mb-0.5 ml-1">Target Slot</label>
-                          <div className={`text-xs px-2 py-1 rounded border min-w-[120px] transition-colors ${
+                   {/* Target Slot Row */}
+                   <div className="relative flex items-center justify-between group">
+                      <div className="flex flex-col w-full">
+                          <div className="flex items-center justify-between mb-0.5">
+                             <label className="text-[9px] uppercase text-slate-500 font-bold tracking-wider ml-1">Target Slot</label>
+                             {instance.target.ready && <span className="text-[8px] text-emerald-400 font-mono">LINKED</span>}
+                          </div>
+
+                          <div className={`relative text-xs px-3 py-1.5 rounded border transition-colors ${
                              instance.target.ready 
-                               ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-300' 
+                               ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-300 shadow-sm' 
                                : 'bg-slate-900 border-slate-700 text-slate-500 italic'
                            }`}>
-                             {instance.target.ready ? instance.target.name : 'Waiting...'}
+                             {/* Input Handle - Docked on the specific Input Box */}
+                             <Handle 
+                                type="target" 
+                                position={Position.Left} 
+                                id={`target-in-${instance.index}`} 
+                                className={`!w-3 !h-3 !-left-4 !border-2 z-50 transition-colors duration-200 ${
+                                    instance.target.ready 
+                                    ? '!bg-emerald-500 !border-white' 
+                                    : '!bg-slate-700 !border-slate-500 group-hover:!bg-slate-600'
+                                }`} 
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title={`Target for Instance ${instance.index}`}
+                              />
+                             {instance.target.ready ? instance.target.name : 'Connect Target...'}
                           </div>
                       </div>
-                      <Handle 
-                        type="target" 
-                        position={Position.Left} 
-                        id={`target-in-${instance.index}`} 
-                        className={`!w-3 !h-3 !border-2 ${instance.target.ready ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-                        style={{ top: '65%', left: '-13px' }}
-                        title={`Target for Instance ${instance.index}`}
-                      />
                    </div>
                 </div>
 
                 {/* Status Bar / Output */}
-                <div className="relative mt-2 pt-2 border-t border-slate-700/50 flex items-center justify-between">
+                <div className="relative mt-2 pt-3 border-t border-slate-700/50 flex items-center justify-between">
                    {instance.payload ? (
-                       <div className="flex flex-col w-full">
+                       <div className="flex flex-col w-full pr-4">
                            <div className="flex justify-between items-center">
                                <div className="flex items-center space-x-2">
                                    <span className="text-[10px] text-emerald-400 font-bold tracking-wide">READY</span>
@@ -354,15 +374,22 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                            </div>
                        </div>
                    ) : (
-                       <span className="text-[10px] text-slate-500 italic">Waiting for connection...</span>
+                       <div className="flex items-center space-x-2 opacity-50">
+                           <svg className="w-3 h-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                           <span className="text-[10px] text-slate-500 italic">Waiting for connection...</span>
+                       </div>
                    )}
                    
                    <Handle 
                       type="source" 
                       position={Position.Right} 
                       id={`result-out-${instance.index}`} 
-                      className={`!w-3 !h-3 !border-2 transition-colors duration-300 ${instance.payload ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
-                      style={{ right: '-13px' }}
+                      className={`!w-3 !h-3 !-right-1.5 !border-2 transition-colors duration-300 z-50 ${
+                          instance.payload 
+                          ? '!bg-emerald-500 !border-white' 
+                          : '!bg-slate-700 !border-slate-500'
+                      }`} 
+                      style={{ top: '50%', transform: 'translateY(-50%)' }}
                       title={`Output Payload ${instance.index}`} 
                    />
                 </div>
@@ -372,7 +399,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
 
       <button 
         onClick={addInstance}
-        className="w-full py-2 bg-slate-800 hover:bg-slate-700 border-t border-slate-700 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1"
+        className="w-full py-2 bg-slate-800 hover:bg-slate-700 border-t border-slate-700 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1 rounded-b-lg"
       >
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

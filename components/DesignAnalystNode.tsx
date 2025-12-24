@@ -62,7 +62,7 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
                 </div>
              </div>
 
-             <div className="italic text-slate-400 leading-tight border-l-2 border-slate-600 pl-2 my-1">
+             <div className="italic text-slate-400 leading-relaxed border-l-2 border-slate-600 pl-2 my-1 whitespace-pre-wrap break-words">
                 "{strategy.reasoning}"
              </div>
 
@@ -74,7 +74,10 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
              )}
 
              {strategy.generativePrompt && (
-                 <div className="bg-slate-950 p-2 rounded border border-slate-800 font-mono text-[10px] whitespace-pre-wrap break-all max-h-24 overflow-y-auto">
+                 <div 
+                    className="bg-slate-950 p-2 rounded border border-slate-800 font-mono text-[10px] whitespace-pre-wrap break-words max-h-24 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-track]:bg-transparent"
+                    onWheel={(e) => e.stopPropagation()}
+                 >
                     {strategy.generativePrompt}
                  </div>
              )}
@@ -135,7 +138,16 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     return () => unregisterNode(id);
   }, [id, unregisterNode]);
 
+  // Dynamic Node Title based on connection status
+  const nodeTitle = useMemo(() => {
+      if (sourceData?.container?.containerName) {
+          return `Design Analyst (${sourceData.container.containerName})`;
+      }
+      return 'Design Analyst (Waiting...)';
+  }, [sourceData]);
+
   // 2. Pass-Through Data Registration
+  // Registers inputs as outputs under THIS node's ID to allow daisy-chaining to Remapper
   useEffect(() => {
     if (sourceData) {
         registerResolved(id, 'source-out', sourceData);
@@ -379,7 +391,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   };
 
   const getPreviewStyle = (w: number, h: number, color: string) => {
-     const maxDim = 60;
+     const maxDim = 50; // Increased slightly for single row visibility
      const ratio = w / h;
      let styleW = maxDim;
      let styleH = maxDim;
@@ -397,20 +409,25 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   const isReady = !!sourceData && !!targetData;
 
   return (
-    <div className={`w-[450px] h-full min-h-[500px] rounded-lg shadow-2xl border overflow-hidden font-sans flex flex-col transition-colors duration-300 bg-slate-900 ${activeModelConfig.headerClass.replace('bg-', 'border-').split(' ')[0]}`}>
-      <NodeResizer minWidth={450} minHeight={500} isVisible={true} handleClassName="bg-slate-500" />
+    // REMOVED overflow-hidden to allow handles to sit on the border
+    <div className="w-full h-full bg-slate-800 rounded-lg shadow-xl border border-slate-600 font-sans flex flex-col transition-colors duration-300">
+      <NodeResizer 
+          minWidth={450} 
+          minHeight={600} 
+          isVisible={true} 
+          handleStyle={{ background: 'transparent', border: 'none' }}
+          lineStyle={{ border: 'none' }}
+      />
       
-      {/* Inputs */}
-      <Handle type="target" position={Position.Top} id="source-in" className="!bg-indigo-500" style={{ left: '30%' }} title="Source Context" />
-      <Handle type="target" position={Position.Top} id="target-in" className="!bg-emerald-500" style={{ left: '70%' }} title="Target Slot" />
-
       {/* Header */}
-      <div className={`p-2 border-b flex items-center justify-between transition-colors duration-300 shrink-0 ${activeModelConfig.headerClass}`}>
+      <div className="bg-slate-900 p-2 border-b border-slate-700 flex items-center justify-between shrink-0 rounded-t-lg">
          <div className="flex items-center space-x-2">
            <svg className={`w-4 h-4 ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-600' : 'text-slate-100'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
            </svg>
-           <span className={`text-sm font-bold ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-800' : 'text-slate-100'}`}>Design Analyst</span>
+           <span className={`text-sm font-bold ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-800' : 'text-slate-100'}`}>
+              {nodeTitle}
+           </span>
          </div>
          
          {/* Model Selector Badge */}
@@ -433,20 +450,97 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
       </div>
 
       {/* Main Body */}
-      <div className="flex-1 flex flex-col min-h-0 bg-slate-900 overflow-hidden">
-         {/* Context Bar (Ghost Preview) - Always Visible at Top */}
-         <div className="shrink-0 flex items-center justify-around bg-slate-800/50 p-2 border-b border-slate-700">
-             <div className="flex flex-col items-center space-y-1">
-                 <span className="text-[9px] text-slate-400 uppercase">Source</span>
-                 <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10" 
-                      style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 30, height: 30, borderColor: '#334155' }}>
+      <div className="flex-1 flex flex-col min-h-0 bg-slate-900">
+         {/* Visual Feedback Area - Updated with Absolute Handles */}
+         <div className="shrink-0 border-b border-slate-700 bg-slate-800/50 py-4 flex items-center justify-between min-h-[100px] relative">
+             
+             {/* Left Group: Inputs - Removed pl-4 to allow handle to sit on edge */}
+             <div className="flex flex-col justify-center space-y-6 z-10 w-24 pl-0 relative">
+                 {/* Source In */}
+                 <div className="relative flex items-center pl-3">
+                    <Handle 
+                        type="target" 
+                        position={Position.Left} 
+                        id="source-in" 
+                        // Docked to the left edge of the node (-left-1.5)
+                        className="!absolute !-left-1.5 !w-3 !h-3 !bg-indigo-500 !border-2 !border-slate-800 z-50"
+                        style={{ top: '50%', transform: 'translateY(-50%)' }}
+                        title="Source Context (From Resolver)" 
+                    />
+                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider truncate">SOURCE</span>
+                 </div>
+                 
+                 {/* Target In */}
+                 <div className="relative flex items-center pl-3">
+                    <Handle 
+                        type="target" 
+                        position={Position.Left} 
+                        id="target-in" 
+                        className="!absolute !-left-1.5 !w-3 !h-3 !bg-emerald-500 !border-2 !border-slate-800 z-50"
+                        style={{ top: '50%', transform: 'translateY(-50%)' }}
+                        title="Target Slot (From Splitter)" 
+                    />
+                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider truncate">TARGET</span>
                  </div>
              </div>
-             <div className="text-slate-600">→</div>
-             <div className="flex flex-col items-center space-y-1">
-                 <span className="text-[9px] text-slate-400 uppercase">Target</span>
-                 <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10" 
-                      style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 30, height: 30, borderColor: '#334155' }}>
+
+             {/* Center Stage: Previews */}
+             <div className="flex-1 flex items-center justify-center space-x-6 mx-2">
+                 
+                 {/* Source Preview */}
+                 <div className="flex flex-col items-center space-y-1">
+                    <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
+                            style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 40, height: 40, borderColor: '#334155' }}>
+                    </div>
+                    <span className="text-[8px] font-mono text-slate-500">
+                        {sourceData ? `${sourceData.container.bounds.w}x${sourceData.container.bounds.h}` : '---'}
+                    </span>
+                 </div>
+
+                 {/* Directional Arrow */}
+                 <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                 </svg>
+
+                 {/* Target Preview */}
+                 <div className="flex flex-col items-center space-y-1">
+                    <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10 transition-all duration-300" 
+                            style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 40, height: 40, borderColor: '#334155' }}>
+                    </div>
+                    <span className="text-[8px] font-mono text-slate-500">
+                         {targetData ? `${targetData.bounds.w}x${targetData.bounds.h}` : '---'}
+                    </span>
+                 </div>
+
+             </div>
+
+             {/* Right Group: Outputs - Removed pr-4 */}
+             <div className="flex flex-col justify-center space-y-6 z-10 items-end w-24 pr-0 relative">
+                 {/* Source Out */}
+                 <div className="relative flex items-center justify-end pr-3">
+                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider mr-2 truncate">SOURCE</span>
+                    <Handle 
+                        type="source" 
+                        position={Position.Right} 
+                        id="source-out" 
+                        // Docked to the right edge of the node (-right-1.5)
+                        className="!absolute !-right-1.5 !w-3 !h-3 !bg-indigo-500 !border-2 !border-white z-50" 
+                        style={{ top: '50%', transform: 'translateY(-50%)' }}
+                        title="Analyzed Source (To Remapper)" 
+                    />
+                 </div>
+                 
+                 {/* Target Out */}
+                 <div className="relative flex items-center justify-end pr-3">
+                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider mr-2 truncate">TARGET</span>
+                    <Handle 
+                        type="source" 
+                        position={Position.Right} 
+                        id="target-out" 
+                        className="!absolute !-right-1.5 !w-3 !h-3 !bg-emerald-500 !border-2 !border-white z-50" 
+                        style={{ top: '50%', transform: 'translateY(-50%)' }}
+                        title="Target Reference (To Remapper)" 
+                    />
                  </div>
              </div>
          </div>
@@ -454,8 +548,8 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
          {/* Chat History Container */}
          <div 
             ref={chatContainerRef}
-            className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar"
-            style={{ maxHeight: '300px' }} 
+            className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-track]:bg-transparent"
+            onWheel={(e) => e.stopPropagation()}
          >
              {chatHistory.length === 0 && (
                  <div className="h-full flex flex-col items-center justify-center text-slate-600 italic text-xs opacity-50 space-y-2">
@@ -482,7 +576,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
                         {/* Updated to use parts[0].text instead of content */}
                         {msg.parts?.[0]?.text && msg.role === 'user' && (
-                            <div className="whitespace-pre-wrap">{msg.parts[0].text}</div>
+                            <div className="whitespace-pre-wrap break-words leading-relaxed">{msg.parts[0].text}</div>
                         )}
                         
                         {msg.strategySnapshot && (
@@ -517,9 +611,10 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
              <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
+                onWheel={(e) => e.stopPropagation()}
                 placeholder={isReady ? "Describe refinement (e.g., 'Make the headline bigger')..." : "Connect inputs to start..."}
                 disabled={!isReady || isAnalyzing}
-                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 nodrag nopan resize-none h-16 custom-scrollbar"
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 nodrag nopan resize-none h-16 custom-scrollbar scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-track]:bg-transparent"
              />
              
              <div className="flex space-x-2">
@@ -550,10 +645,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
              </div>
          </div>
       </div>
-
-      {/* Outputs (Proxies) */}
-      <Handle type="source" position={Position.Bottom} id="source-out" className="!bg-indigo-500" style={{ left: '30%' }} title="Analyzed Source" />
-      <Handle type="source" position={Position.Bottom} id="target-out" className="!bg-emerald-500" style={{ left: '70%' }} title="Target Reference" />
     </div>
   );
 });

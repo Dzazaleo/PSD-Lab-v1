@@ -40,8 +40,6 @@ export const ContainerResolverNode = memo(({ id, data }: NodeProps<PSDNodeData>)
   }, [id, unregisterNode]);
 
   // 2. Compute Channel Data
-  // NOTE: 'nodes' is intentionally excluded from dependencies. We depend on 'designLayers' and 'globalTemplate'
-  // which are derived from nodes but stable. Including 'nodes' causes infinite loops with store updates.
   const channels: ChannelState[] = useMemo(() => {
     return Array.from({ length: channelCount }).map((_, index) => {
       const targetHandleId = `target-${index}`;
@@ -146,9 +144,10 @@ export const ContainerResolverNode = memo(({ id, data }: NodeProps<PSDNodeData>)
   }, [id, setNodes]);
 
   return (
-    <div className="min-w-[320px] bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans flex flex-col">
+    // Removed overflow-hidden to allow handles to "dock" on the edges without clipping
+    <div className="min-w-[320px] bg-slate-800 rounded-lg shadow-xl border border-slate-600 font-sans flex flex-col">
       {/* Header */}
-      <div className="bg-slate-900 p-2 border-b border-slate-700 flex items-center justify-between">
+      <div className="bg-slate-900 p-2 border-b border-slate-700 flex items-center justify-between rounded-t-lg">
         <div className="flex items-center space-x-2">
           <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -174,40 +173,47 @@ export const ContainerResolverNode = memo(({ id, data }: NodeProps<PSDNodeData>)
               channel.status === 'warning' ? 'bg-orange-900/10' : ''
             }`}
           >
-            <span 
-              className="absolute left-1.5 text-[9px] font-mono text-slate-500 pointer-events-none select-none z-10" 
-              style={{ top: '50%', transform: 'translateY(-50%)' }}
-            >
-              {channel.index}
-            </span>
-
+            {/* Input Handle - Docked Left */}
             <Handle
               type="target"
               position={Position.Left}
               id={`target-${channel.index}`}
-              className={`!w-3 !h-3 !-left-1.5 transition-colors duration-200 ${
-                channel.status === 'resolved' ? '!bg-emerald-500 !border-emerald-200' :
-                channel.status === 'warning' ? '!bg-orange-500 !border-orange-200' :
-                channel.status === 'error' ? '!bg-red-500 !border-red-200' :
-                '!bg-slate-600 !border-slate-800'
+              className={`!w-3 !h-3 !-left-1.5 transition-colors duration-200 z-50 ${
+                channel.status === 'resolved' ? '!bg-emerald-500 !border-white' :
+                channel.status === 'warning' ? '!bg-orange-500 !border-white' :
+                channel.status === 'error' ? '!bg-red-500 !border-white' :
+                '!bg-slate-600 !border-slate-400'
               }`}
               style={{ top: '50%', transform: 'translateY(-50%)' }}
             />
 
-            <div className="flex-1 flex items-center justify-between px-6">
-              <div className="flex items-center space-x-2 overflow-hidden">
+            {/* Input Index Label (Small, docked next to handle) */}
+            <span className="absolute left-3 text-[9px] font-mono text-slate-500 pointer-events-none select-none">
+              IN {channel.index}
+            </span>
+
+            {/* Main Channel Content */}
+            <div className="flex-1 flex items-center justify-between px-8 w-full">
+              <div className="flex items-center space-x-2 overflow-hidden min-w-0 flex-1">
                 {channel.status === 'idle' ? (
-                  <span className="text-xs text-slate-500 italic">Unconnected</span>
+                  <span className="text-xs text-slate-500 italic truncate">Unconnected Slot</span>
                 ) : (
                   <div className="flex flex-col leading-tight min-w-0">
-                    <span className="text-xs font-semibold text-slate-200 truncate">{channel.containerName}</span>
-                    <span className="text-[9px] text-slate-500 truncate">{channel.debugCode}</span>
+                    <div className="flex items-center space-x-1">
+                       <span className="text-xs font-semibold text-slate-200 truncate">{channel.containerName}</span>
+                       <svg className="w-3 h-3 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                       </svg>
+                    </div>
+                    {channel.status !== 'resolved' && (
+                        <span className="text-[9px] text-slate-500 truncate">{channel.debugCode}</span>
+                    )}
                   </div>
                 )}
               </div>
 
               {channel.status !== 'idle' && (
-                <div className={`text-[10px] px-1.5 py-0.5 rounded border ml-2 whitespace-nowrap ${
+                <div className={`text-[9px] px-1.5 py-0.5 rounded border ml-2 whitespace-nowrap shrink-0 ${
                     channel.status === 'resolved' ? 'border-emerald-800 bg-emerald-900/40 text-emerald-300' :
                     channel.status === 'warning' ? 'border-orange-800 bg-orange-900/40 text-orange-300' :
                     'border-red-800 bg-red-900/40 text-red-300'
@@ -217,19 +223,18 @@ export const ContainerResolverNode = memo(({ id, data }: NodeProps<PSDNodeData>)
               )}
             </div>
 
-            <span 
-              className="absolute right-2 text-[9px] font-mono text-slate-500 pointer-events-none select-none z-10" 
-              style={{ top: '50%', transform: 'translateY(-50%)' }}
-            >
-              {channel.index}
+            {/* Output Index Label */}
+            <span className="absolute right-3 text-[9px] font-mono text-slate-500 pointer-events-none select-none">
+              OUT
             </span>
 
+            {/* Output Handle - Docked Right */}
             <Handle
               type="source"
               position={Position.Right}
               id={`source-${channel.index}`}
-              className={`!w-3 !h-3 !-right-1.5 transition-colors duration-200 ${
-                channel.status === 'resolved' ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'
+              className={`!w-3 !h-3 !-right-1.5 transition-colors duration-200 z-50 ${
+                channel.status === 'resolved' ? '!bg-blue-500 !border-white' : '!bg-slate-700 !border-slate-500'
               }`}
               style={{ top: '50%', transform: 'translateY(-50%)' }}
             />
@@ -239,7 +244,7 @@ export const ContainerResolverNode = memo(({ id, data }: NodeProps<PSDNodeData>)
 
       <button 
         onClick={addChannel}
-        className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 border-t border-slate-700 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1"
+        className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 border-t border-slate-700 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1 rounded-b-lg"
       >
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

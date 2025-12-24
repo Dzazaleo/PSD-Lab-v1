@@ -133,7 +133,7 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
   const isConnectable = isDataLoaded && hasBinary;
 
   return (
-    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
+    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors relative ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
       {/* Header */}
       <div className={`p-2 border-b flex items-center justify-between ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-emerald-900 border-emerald-800'}`}>
         <div className="flex items-center space-x-2">
@@ -235,6 +235,7 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
         )}
       </div>
 
+      {/* Output Handle - Centered Right */}
       <Handle
         type="source"
         position={Position.Right}
@@ -242,6 +243,7 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
         isConnectable={isConnectable}
         title="Output: Target Template Metadata"
         className={`!w-3 !h-3 !border-2 transition-colors duration-300 ${isConnectable ? '!bg-emerald-500 !border-white' : '!bg-slate-600 !border-slate-400'}`}
+        style={{ right: -6, top: '50%', transform: 'translateY(-50%)' }}
       />
     </div>
   );
