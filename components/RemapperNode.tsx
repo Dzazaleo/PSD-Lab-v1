@@ -1,14 +1,15 @@
 import React, { memo, useMemo, useEffect } from 'react';
-import { Handle, Position, NodeProps, useEdges, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useEdges, useReactFlow, useNodes } from 'reactflow';
 import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 
 export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   const { setNodes } = useReactFlow();
   const edges = useEdges();
+  const nodes = useNodes();
   
   // Consume data from Store
-  const { templateRegistry, resolvedRegistry, unregisterNode } = useProceduralStore();
+  const { templateRegistry, resolvedRegistry, registerPayload, unregisterNode } = useProceduralStore();
 
   // Cleanup
   useEffect(() => {
@@ -31,13 +32,17 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
     const context = resolvedData[sourceHandleId];
     if (!context) return null;
 
+    // Find the original LoadPSDNode to ensure the Export node can find the binary data
+    const loadPsdNode = nodes.find(n => n.type === 'loadPsd');
+    const binarySourceId = loadPsdNode ? loadPsdNode.id : sourceNodeId;
+
     return {
-        sourceNodeId: sourceNodeId, // Capturing the Node ID of the source for Export lookup
+        sourceNodeId: binarySourceId, 
         containerName: context.container.containerName,
         layers: context.layers,
         originalBounds: context.container.bounds
     };
-  }, [edges, id, resolvedRegistry]);
+  }, [edges, id, resolvedRegistry, nodes]);
 
 
   // --------------------------------------------------------------------------
@@ -128,11 +133,11 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
 
 
   // --------------------------------------------------------------------------
-  // 4. Update Node State
+  // 4. Update Node State & Register to Store
   // --------------------------------------------------------------------------
   useEffect(() => {
+    // Sync with React Flow Node Data (for visual debugging on node itself if needed)
     let frameId: number;
-
     const updateNodeData = () => {
         const currentPayload = data.transformedPayload;
         const isDifferent = JSON.stringify(currentPayload) !== JSON.stringify(transformationPayload);
@@ -146,13 +151,17 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
             }));
         }
     };
-
     frameId = requestAnimationFrame(updateNodeData);
+
+    // Sync with Procedural Store (for Export Node consumption)
+    if (transformationPayload) {
+        registerPayload(id, transformationPayload);
+    }
 
     return () => {
         if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [transformationPayload, id, setNodes, data.transformedPayload]);
+  }, [transformationPayload, id, setNodes, data.transformedPayload, registerPayload]);
 
 
   // --------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import React, { memo, useState, useMemo } from 'react';
-import { Handle, Position, NodeProps, useNodes, useEdges, Node } from 'reactflow';
-import { PSDNodeData, TransformedLayer, TransformedPayload } from '../types';
+import { Handle, Position, NodeProps, useEdges } from 'reactflow';
+import { TransformedLayer, TransformedPayload } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 import { findLayerByPath, writePsdFile } from '../services/psdService';
 import { Layer, Psd } from 'ag-psd';
@@ -10,22 +10,20 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
   const [exportError, setExportError] = useState<string | null>(null);
 
   const edges = useEdges();
-  const nodes = useNodes();
   
-  // Access global registries for binary data (Original PSDs)
-  const { psdRegistry } = useProceduralStore();
+  // Access global registries for binary data (Original PSDs) and Payload Data
+  const { psdRegistry, templateRegistry, payloadRegistry } = useProceduralStore();
 
-  // 1. Resolve Connected Target Template
-  const targetTemplateNode = useMemo(() => {
+  // 1. Resolve Connected Target Template from Store via Edge Source
+  const templateMetadata = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'template-input');
     if (!edge) return null;
-    return nodes.find(n => n.id === edge.source) as Node<PSDNodeData>;
-  }, [edges, nodes, id]);
+    return templateRegistry[edge.source];
+  }, [edges, id, templateRegistry]);
 
-  const templateMetadata = targetTemplateNode?.data?.template;
   const containers = templateMetadata?.containers || [];
 
-  // 2. Map Connections to Payloads
+  // 2. Map Connections to Payloads from Store
   const slotConnections = useMemo(() => {
     const map = new Map<string, TransformedPayload>();
     
@@ -38,21 +36,17 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       // Extract container name from handle ID
       const containerName = edge.targetHandle.replace('input-', '');
       
-      // Find the source node (Remapper)
-      const sourceNode = nodes.find(n => n.id === edge.source) as Node<PSDNodeData>;
-      
-      // Extract the payload from the source node's data
-      const payload = sourceNode?.data?.transformedPayload;
+      // Fetch payload directly from store using source node ID
+      const payload = payloadRegistry[edge.source];
 
       if (payload) {
          // Verify that the payload is actually intended for this slot if needed
-         // But for now, we trust the user's connection + the handle ID
          map.set(containerName, payload);
       }
     });
 
     return map;
-  }, [edges, nodes, id]);
+  }, [edges, id, payloadRegistry]);
 
   // 3. Status Calculation
   const totalSlots = containers.length;
