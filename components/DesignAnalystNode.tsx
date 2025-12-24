@@ -4,6 +4,9 @@ import { PSDNodeData, MappingContext, TemplateMetadata, LayoutStrategy, Serializ
 import { useProceduralStore } from '../store/ProceduralContext';
 import { GoogleGenAI, Type } from "@google/genai";
 
+// Define the exact union type for model keys to match PSDNodeData
+type ModelKey = 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
+
 interface ModelConfig {
   apiModel: string;
   label: string;
@@ -12,8 +15,8 @@ interface ModelConfig {
   thinkingBudget?: number;
 }
 
-// Model Configurations
-const MODELS: Record<string, ModelConfig> = {
+// Strictly typed model configuration
+const MODELS: Record<ModelKey, ModelConfig> = {
   'gemini-3-flash': {
     apiModel: 'gemini-3-flash-preview',
     label: 'FLASH',
@@ -46,7 +49,11 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, registerAnalysis, unregisterNode } = useProceduralStore();
 
   // Determine current model state (Persistent)
-  const selectedModelKey = data.selectedModel || 'gemini-3-flash';
+  // Default to Flash if undefined or invalid
+  const selectedModelKey: ModelKey = (data.selectedModel && MODELS[data.selectedModel]) 
+    ? data.selectedModel 
+    : 'gemini-3-flash';
+    
   const activeModelConfig = MODELS[selectedModelKey];
 
   // 1. Upstream Data Retrieval
@@ -92,7 +99,9 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
   // Handle Model Change
   const handleModelChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newModel = e.target.value as keyof typeof MODELS;
+    // Force cast to ModelKey since we control the options
+    const newModel = e.target.value as ModelKey;
+    
     setNodes((nds) => 
       nds.map((node) => {
         if (node.id === id) {
@@ -116,8 +125,10 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     setError(null);
 
     try {
-      // Assuming process.env.API_KEY is available as per guidelines
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) throw new Error("API_KEY not set in environment");
+
+      const ai = new GoogleGenAI({ apiKey });
 
       const sourceW = sourceData.container.bounds.w;
       const sourceH = sourceData.container.bounds.h;
@@ -281,6 +292,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
                 onChange={handleModelChange}
                 className={`appearance-none text-[9px] px-2 py-0.5 pr-4 rounded font-mono font-bold cursor-pointer outline-none border transition-colors duration-300 ${activeModelConfig.badgeClass}`}
              >
+                 {/* Explicitly list options matching ModelKey union */}
                  <option value="gemini-3-flash" className="text-black bg-white">FLASH</option>
                  <option value="gemini-3-pro" className="text-black bg-white">PRO</option>
                  <option value="gemini-3-pro-thinking" className="text-black bg-white">DEEP THINKING</option>
