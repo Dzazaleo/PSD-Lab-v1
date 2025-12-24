@@ -138,6 +138,14 @@ export interface RemapperConfig {
   strategy?: RemapStrategy;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  parts: { text: string }[];
+  strategySnapshot?: LayoutStrategy;
+  timestamp: number;
+}
+
 export interface PSDNodeData {
   fileName: string | null;
   template: TemplateMetadata | null;
@@ -154,6 +162,7 @@ export interface PSDNodeData {
   channelCount?: number;
   instanceCount?: number;
   selectedModel?: 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
+  chatHistory?: ChatMessage[];
 }
 
 export interface TargetTemplateData {
