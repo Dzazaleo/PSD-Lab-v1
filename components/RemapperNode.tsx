@@ -225,8 +225,8 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
              <Handle 
                 type="source" 
                 position={Position.Right} 
-                id="payload-output" 
-                className={`!bg-indigo-500 !border-2 ${isReady ? '!border-white' : '!border-indigo-800'}`} 
+                id="remap-output" 
+                className={`!w-3 !h-3 !border-2 transition-colors duration-300 ${isReady ? '!bg-emerald-500 !border-white' : '!bg-slate-700 !border-slate-500'}`} 
                 style={{ top: '50%', right: '-19px', transform: 'translateY(-50%)' }}
                 title="Output: Transformed Payload" 
             />
