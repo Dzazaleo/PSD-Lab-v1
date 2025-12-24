@@ -1,5 +1,5 @@
-import React, { memo, useState, useMemo, useEffect } from 'react';
-import { Handle, Position, NodeProps, useNodes, useEdges, Node } from 'reactflow';
+import React, { memo, useMemo, useEffect, useCallback } from 'react';
+import { Handle, Position, NodeProps, useNodes, useEdges, Node, useReactFlow } from 'reactflow';
 import { PSDNodeData } from '../types';
 import { createContainerContext } from '../services/psdService';
 import { usePsdResolver, ResolverStatus } from '../hooks/usePsdResolver';
@@ -15,12 +15,13 @@ interface ChannelState {
   resolvedContext?: any;
 }
 
-export const ContainerResolverNode = memo(({ id }: NodeProps) => {
-  // State for number of channels (start with 10)
-  const [channelCount, setChannelCount] = useState(10);
+export const ContainerResolverNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
+  // Read channel count from persistent data, default to 10 if new/undefined
+  const channelCount = data.channelCount || 10;
   
   const nodes = useNodes();
   const edges = useEdges();
+  const { setNodes } = useReactFlow();
   
   // Store Hooks
   const { registerResolved, unregisterNode } = useProceduralStore();
@@ -127,9 +128,22 @@ export const ContainerResolverNode = memo(({ id }: NodeProps) => {
     });
   }, [channels, id, registerResolved]);
 
-  const addChannel = () => {
-    setChannelCount(prev => prev + 1);
-  };
+  const addChannel = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === id) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              channelCount: (node.data.channelCount || 10) + 1,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [id, setNodes]);
 
   return (
     <div className="min-w-[320px] bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans flex flex-col">

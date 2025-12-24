@@ -50,7 +50,12 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
   const { setNodes } = useReactFlow();
 
   // Connect to store
-  const { registerPsd, registerTemplate, unregisterNode } = useProceduralStore();
+  const { psdRegistry, registerPsd, registerTemplate, unregisterNode } = useProceduralStore();
+
+  // Determine State
+  const isDataLoaded = !!data.template;
+  const hasBinary = !!psdRegistry[id];
+  const isDehydrated = isDataLoaded && !hasBinary;
 
   useEffect(() => {
     return () => unregisterNode(id);
@@ -65,7 +70,9 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
 
     try {
       console.log(`Parsing Target PSD: ${file.name}...`);
-      // Optimization: Skip layer image data as we only need structure/metadata
+      // Optimization: Skip layer image data as we only need structure/metadata for the target
+      // However, for Export assembly, we might need the original canvas state or specific layers if user demands.
+      // For now, we keep it lightweight as requested.
       const parsedPsd = await parsePsdFile(file, { skipLayerImageData: true, skipThumbnail: true });
       const templateData = extractTemplateMetadata(parsedPsd);
 
@@ -123,24 +130,54 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
   }, [id, setNodes, registerPsd, registerTemplate]);
 
   const handleBoxClick = () => fileInputRef.current?.click();
-  const isLoaded = !!data.template;
+  const isConnectable = isDataLoaded && hasBinary;
 
   return (
-    <div className="w-72 bg-slate-800 rounded-lg shadow-xl border border-slate-600 overflow-hidden font-sans">
-      {/* Distinct Header Color: Emerald 900 */}
-      <div className="bg-emerald-900 p-2 border-b border-emerald-800 flex items-center justify-between">
+    <div className={`w-72 rounded-lg shadow-xl border overflow-hidden font-sans transition-colors ${isDehydrated ? 'bg-orange-950/30 border-orange-500/50' : 'bg-slate-800 border-slate-600'}`}>
+      {/* Header */}
+      <div className={`p-2 border-b flex items-center justify-between ${isDehydrated ? 'bg-orange-900/50 border-orange-700' : 'bg-emerald-900 border-emerald-800'}`}>
         <div className="flex items-center space-x-2">
-          <svg className="w-4 h-4 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          </svg>
-          <span className="text-sm font-semibold text-emerald-100">Target Template</span>
+           {isDehydrated ? (
+             <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+             </svg>
+          ) : (
+            <svg className="w-4 h-4 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+          )}
+          <span className={`text-sm font-semibold ${isDehydrated ? 'text-orange-100' : 'text-emerald-100'}`}>
+            {isDehydrated ? 'Binary Data Missing' : 'Target Template'}
+          </span>
         </div>
       </div>
 
       <div className="p-4">
         <input type="file" accept=".psd" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
 
-        {!isLoaded && !isLoading && (
+        {/* RE-HYDRATION UI */}
+        {isDehydrated && !isLoading && (
+            <div className="flex flex-col space-y-3">
+                <div className="text-[11px] text-orange-200/90 leading-tight bg-orange-900/20 p-2 rounded border border-orange-500/20">
+                   <strong>Structure loaded, binary missing.</strong><br/>
+                   The target structure is known, but the binary PSD file is needed to construct the final export.
+                   <br/><br/>
+                   Please re-upload: <span className="font-mono text-orange-100 bg-black/20 px-1 rounded">{data.fileName}</span>
+                </div>
+                
+                <button 
+                  onClick={handleBoxClick}
+                  className="w-full py-2 bg-orange-600 hover:bg-orange-500 text-white rounded text-xs font-bold uppercase tracking-wider shadow-lg transition-colors flex items-center justify-center space-x-2"
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span>Re-upload File</span>
+                </button>
+            </div>
+        )}
+
+        {!isDataLoaded && !isLoading && !isDehydrated && (
           <div onClick={handleBoxClick} className="group cursor-pointer border-2 border-dashed border-slate-600 hover:border-emerald-500 rounded-md p-6 flex flex-col items-center justify-center transition-colors bg-slate-800/50 hover:bg-slate-700/50"
           >
              <svg className="w-8 h-8 text-slate-500 group-hover:text-emerald-400 mb-2 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -162,7 +199,7 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
           </div>
         )}
 
-        {isLoaded && !isLoading && (
+        {isDataLoaded && !isLoading && !isDehydrated && (
            <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
               <div className="flex items-center space-x-2 mb-2">
                  <div className="bg-emerald-500/20 text-emerald-400 p-1 rounded-full shrink-0">
@@ -202,9 +239,9 @@ export const TargetTemplateNode = memo(({ data, id }: NodeProps<PSDNodeData>) =>
         type="source"
         position={Position.Right}
         id="target-metadata-out"
-        isConnectable={isLoaded}
+        isConnectable={isConnectable}
         title="Output: Target Template Metadata"
-        className={`!w-3 !h-3 !border-2 transition-colors duration-300 ${isLoaded ? '!bg-emerald-500 !border-white' : '!bg-slate-600 !border-slate-400'}`}
+        className={`!w-3 !h-3 !border-2 transition-colors duration-300 ${isConnectable ? '!bg-emerald-500 !border-white' : '!bg-slate-600 !border-slate-400'}`}
       />
     </div>
   );

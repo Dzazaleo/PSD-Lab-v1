@@ -55,7 +55,13 @@ const initialNodes: Node<PSDNodeData>[] = [
     id: 'node-4',
     type: 'containerResolver',
     position: { x: 950, y: 450 },
-    data: { fileName: null, template: null, validation: null, designLayers: null },
+    data: { 
+      fileName: null, 
+      template: null, 
+      validation: null, 
+      designLayers: null,
+      channelCount: 10 // Initial state for persistence
+    },
   },
   {
     id: 'node-analyst-1', 
@@ -67,7 +73,14 @@ const initialNodes: Node<PSDNodeData>[] = [
     id: 'node-remapper-1',
     type: 'remapper',
     position: { x: 1650, y: 400 },
-    data: { fileName: null, template: null, validation: null, designLayers: null, remapperConfig: { targetContainerName: null } },
+    data: { 
+      fileName: null, 
+      template: null, 
+      validation: null, 
+      designLayers: null, 
+      remapperConfig: { targetContainerName: null },
+      instanceCount: 1 // Initial state for persistence
+    },
   },
   {
     id: 'node-5',

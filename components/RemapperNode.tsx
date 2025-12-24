@@ -1,4 +1,4 @@
-import React, { memo, useState, useMemo, useEffect } from 'react';
+import React, { memo, useMemo, useEffect, useCallback } from 'react';
 import { Handle, Position, NodeProps, useEdges, useReactFlow, useNodes } from 'reactflow';
 import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer, MAX_BOUNDARY_VIOLATION_PERCENT } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
@@ -21,8 +21,9 @@ interface InstanceData {
   strategyUsed?: boolean;
 }
 
-export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
-  const [instanceCount, setInstanceCount] = useState<number>(1);
+export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
+  // Read instance count from persistent data, default to 1 if new/undefined
+  const instanceCount = data.instanceCount || 1;
   
   const { setNodes } = useReactFlow();
   const edges = useEdges();
@@ -253,7 +254,22 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
     });
   }, [instances, id, registerPayload]);
 
-  const addInstance = () => setInstanceCount(prev => prev + 1);
+  const addInstance = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === id) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              instanceCount: (node.data.instanceCount || 1) + 1,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [id, setNodes]);
 
   return (
     <div className="min-w-[280px] bg-slate-800 rounded-lg shadow-xl border border-indigo-500/50 overflow-hidden font-sans relative flex flex-col">

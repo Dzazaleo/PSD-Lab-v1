@@ -150,6 +150,9 @@ export interface PSDNodeData {
   transformedPayload?: TransformedPayload | null; // For RemapperNode output
   layoutStrategy?: LayoutStrategy | null; // For DesignAnalystNode output
   error?: string | null;
+  // Dynamic State Persistence
+  channelCount?: number;
+  instanceCount?: number;
 }
 
 export interface TargetTemplateData {
