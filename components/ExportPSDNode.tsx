@@ -82,6 +82,7 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       };
 
       // B. Helper to recursively clone and transform layers
+      // This function handles the "Recursive Group Assembly" by calling itself for children
       const reconstructHierarchy = (
         transformedLayers: TransformedLayer[], 
         sourcePsd: Psd
@@ -94,7 +95,7 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
             
             if (originalLayer) {
                 const newLayer: Layer = {
-                    ...originalLayer,
+                    ...originalLayer, // PRESERVE PROPERTIES: opacity, blendMode, etc.
                     top: metaLayer.coords.y,
                     left: metaLayer.coords.x,
                     bottom: metaLayer.coords.y + metaLayer.coords.h,
@@ -104,8 +105,10 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
                     children: undefined // Will be repopulated if group
                 };
 
+                // RECURSIVE GROUP DETECTION
                 if (metaLayer.type === 'group' && metaLayer.children) {
                     newLayer.children = reconstructHierarchy(metaLayer.children, sourcePsd);
+                    newLayer.opened = true; // Ensure groups are expanded in the output
                 }
 
                 resultLayers.push(newLayer);
@@ -128,8 +131,21 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
                   continue;
               }
 
-              const reconstructed = reconstructHierarchy(payload.layers, sourcePsd);
-              finalChildren.push(...reconstructed);
+              const reconstructedContent = reconstructHierarchy(payload.layers, sourcePsd);
+              
+              // WRAP IN CONTAINER GROUP
+              // Creates a top-level folder (e.g. !!BG) to match source/template structure
+              const containerGroup: Layer = {
+                  name: container.originalName,
+                  children: reconstructedContent,
+                  opened: true,
+                  top: container.bounds.y,
+                  left: container.bounds.x,
+                  bottom: container.bounds.y + container.bounds.h,
+                  right: container.bounds.x + container.bounds.w,
+              };
+
+              finalChildren.push(containerGroup);
           }
       }
 
