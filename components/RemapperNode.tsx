@@ -160,19 +160,36 @@ export const RemapperNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                 const relX = (layer.coords.x - sourceRect.x) / sourceRect.w;
                 const relY = (layer.coords.y - sourceRect.y) / sourceRect.h;
 
-                // New Position based on Anchor + Relative Pos * Scaled Size
-                const newX = anchorX + (relX * (sourceRect.w * scale));
-                const newY = anchorY + (relY * (sourceRect.h * scale));
+                // 1. Calculate Base Geometry (Global Strategy)
+                let newX = anchorX + (relX * (sourceRect.w * scale));
+                let newY = anchorY + (relY * (sourceRect.h * scale));
 
-                const newW = layer.coords.w * scale;
-                const newH = layer.coords.h * scale;
+                let layerScaleX = scale;
+                let layerScaleY = scale;
+
+                // 2. Inject AI Overrides (Semantic Recomposition)
+                // Recursive Injection: Check if the AI has specific instructions for this layer ID
+                const override = strategy?.overrides?.find(o => o.layerId === layer.id);
+
+                if (override) {
+                   // Apply offsets (AI provides pixel deltas relative to the scaled position)
+                   newX += override.xOffset;
+                   newY += override.yOffset;
+                   
+                   // Apply individual scale (Multiplicative logic)
+                   layerScaleX *= override.individualScale;
+                   layerScaleY *= override.individualScale;
+                }
+
+                const newW = layer.coords.w * layerScaleX;
+                const newH = layer.coords.h * layerScaleY;
 
                 return {
-                  ...layer,
+                  ...layer, // PROPERTY RETENTION: Preserve opacity, blendMode, isVisible, etc.
                   coords: { x: newX, y: newY, w: newW, h: newH },
                   transform: {
-                    scaleX: scale,
-                    scaleY: scale,
+                    scaleX: layerScaleX,
+                    scaleY: layerScaleY,
                     offsetX: newX,
                     offsetY: newY
                   },

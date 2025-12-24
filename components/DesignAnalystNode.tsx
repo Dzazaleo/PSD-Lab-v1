@@ -1,8 +1,8 @@
 import React, { memo, useState, useEffect, useMemo } from 'react';
 import { Handle, Position, NodeProps, useEdges, useNodes, Node } from 'reactflow';
-import { PSDNodeData, MappingContext, TemplateMetadata, LayoutStrategy, SerializableLayer } from '../types';
+import { PSDNodeData, MappingContext, TemplateMetadata, LayoutStrategy, SerializableLayer, MAX_BOUNDARY_VIOLATION_PERCENT } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, SchemaType } from "@google/genai";
 
 export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -15,7 +15,6 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
   const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, registerAnalysis, unregisterNode } = useProceduralStore();
 
   // 1. Upstream Data Retrieval
-  // Source: Connected via 'source-in' (Expects MappingContext from Resolver)
   const sourceData = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'source-in');
     if (!edge || !edge.sourceHandle) return null;
@@ -23,17 +22,14 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
     return registry ? registry[edge.sourceHandle] : null;
   }, [edges, id, resolvedRegistry]);
 
-  // Target: Connected via 'target-in' (Expects ContainerDefinition via TemplateSplitter or direct connection)
   const targetData = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'target-in');
     if (!edge) return null;
     
-    // We expect the source to be a TemplateSplitter or TargetTemplate
     const template = templateRegistry[edge.source];
     if (!template) return null;
 
     let containerName = edge.sourceHandle;
-    // Clean handle names from Splitter
     if (containerName?.startsWith('slot-bounds-')) {
         containerName = containerName.replace('slot-bounds-', '');
     }
@@ -41,21 +37,18 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
     return template.containers.find(c => c.name === containerName);
   }, [edges, id, templateRegistry]);
 
-  // Cleanup
   useEffect(() => {
     return () => unregisterNode(id);
   }, [id, unregisterNode]);
 
   // 2. Pass-Through Data Registration
-  // The Analyst acts as a proxy, registering upstream data under its own ID so the Remapper can read it.
   useEffect(() => {
     if (sourceData) {
         registerResolved(id, 'source-out', sourceData);
     }
     if (targetData) {
-        // Create a synthetic template for the single container to satisfy Remapper's expectation
         const syntheticTemplate: TemplateMetadata = {
-            canvas: { width: 1000, height: 1000 }, // Dummy canvas, we only care about the container
+            canvas: { width: 1000, height: 1000 },
             containers: [targetData]
         };
         registerTemplate(id, syntheticTemplate);
@@ -79,39 +72,58 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
       const targetW = targetData.bounds.w;
       const targetH = targetData.bounds.h;
 
-      const sourceAspect = sourceW / sourceH;
-      const targetAspect = targetW / targetH;
+      // Deep recursion to flatten hierarchy for the AI to see all movable parts
+      const flattenLayers = (layers: SerializableLayer[], depth = 0): any[] => {
+          let flat: any[] = [];
+          layers.forEach(l => {
+              flat.push({
+                  id: l.id,
+                  name: l.name,
+                  type: l.type,
+                  depth: depth,
+                  // Relative dimensions to the source container
+                  relX: (l.coords.x - sourceData.container.bounds.x) / sourceW,
+                  relY: (l.coords.y - sourceData.container.bounds.y) / sourceH,
+                  relW: l.coords.w / sourceW,
+                  relH: l.coords.h / sourceH
+              });
+              if (l.children) {
+                  flat = flat.concat(flattenLayers(l.children, depth + 1));
+              }
+          });
+          return flat;
+      };
 
-      // Summarize Layer Hierarchy for the AI (Simulating Vision via Geometry)
-      const layerSummary = (sourceData.layers as SerializableLayer[]).map(l => ({
-         name: l.name,
-         type: l.type,
-         relativeArea: (l.coords.w * l.coords.h) / (sourceW * sourceH),
-         position: {
-             x: (l.coords.x - sourceData.container.bounds.x) / sourceW,
-             y: (l.coords.y - sourceData.container.bounds.y) / sourceH
-         }
-      }));
+      const layerAnalysisData = flattenLayers(sourceData.layers as SerializableLayer[]);
 
       const prompt = `
-        Act as a senior Graphic Designer / UI Layout Specialist.
-        Analyze the transformation of a visual asset group into a new container slot.
+        ROLE: Senior PSD Compositor & Layout Automation Engine.
+        GOAL: Perform "Geometry-First Semantic Recomposition". Map source layers into the target slot.
+
+        CONTEXT:
+        - Source Container Aspect Ratio: ${(sourceW / sourceH).toFixed(2)}
+        - Target Slot Aspect Ratio: ${(targetW / targetH).toFixed(2)}
+        - Allowable Boundary Bleed: ${MAX_BOUNDARY_VIOLATION_PERCENT * 100}%
         
-        Source Container: ${sourceW}x${sourceH} (Aspect: ${sourceAspect.toFixed(2)})
-        Target Slot: ${targetW}x${targetH} (Aspect: ${targetAspect.toFixed(2)})
+        LAYER HIERARCHY (JSON):
+        ${JSON.stringify(layerAnalysisData.slice(0, 15))} ... (truncated if long)
+
+        INSTRUCTIONS:
+        1. INTELLIGENCE PRIORITY:
+           - Analyze Internal Hierarchy: Do not just scale the parent group. Look at the sub-layers.
+           - Recomposition: If Target is TALLER than Source, identify "floating" elements (Logos, Titles, Buttons) that can be moved vertically to fill space.
+           - Fidelity Preservation: Do NOT suggest generative fill if moving existing layers solves the layout.
         
-        Key Layers in Source:
-        ${JSON.stringify(layerSummary.slice(0, 5))}
+        2. LOGIC:
+           - "Background" layers (large area, low depth) should usually scale to fill (COVER).
+           - "UI/Text" layers should be anchored (Top-Left, Bottom-Center, etc.) and receive 'individualScale' adjustments if needed.
+           - Calculate 'xOffset' and 'yOffset' in PIXELS relative to the new scaled position.
         
-        Task:
-        1. Compare aspect ratios.
-        2. Determine the best Scale Factor to fit the content aesthetically. 
-           - If source is square and target is tall, should we "STRETCH" or Fit Width?
-           - Standard Math would effectively use min(scaleX, scaleY). Does that leave too much whitespace?
-        3. Suggest an Anchor Point (TOP, CENTER, BOTTOM) based on layer distribution (e.g. if content is at the bottom, anchor BOTTOM).
-        4. If there is significant empty space (>30%), write a "generativePrompt" for an outpainting AI to extend the background style.
-        
-        Return JSON.
+        3. OUTPUT SCHEMA:
+           - suggestedScale: Global scale for the root group.
+           - anchor: Global anchor.
+           - overrides: Array of adjustments for specific layer IDs to break them out of the global transform.
+           - safetyReport: Verify if your suggestions keep critical content within bounds.
       `;
 
       const response = await ai.models.generateContent({
@@ -122,12 +134,34 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
             responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                    suggestedScale: { type: Type.NUMBER },
+                    suggestedScale: { type: Type.NUMBER, description: "Base scale factor for the entire group." },
                     anchor: { type: Type.STRING, enum: ['TOP', 'CENTER', 'BOTTOM', 'STRETCH'] },
                     generativePrompt: { type: Type.STRING },
-                    reasoning: { type: Type.STRING }
+                    reasoning: { type: Type.STRING },
+                    overrides: {
+                        type: Type.ARRAY,
+                        description: "Specific adjustments for sub-layers to recompose the layout.",
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                layerId: { type: Type.STRING },
+                                xOffset: { type: Type.NUMBER, description: "Horizontal shift in pixels" },
+                                yOffset: { type: Type.NUMBER, description: "Vertical shift in pixels" },
+                                individualScale: { type: Type.NUMBER, description: "Layer specific scale multiplier (usually 1.0)" }
+                            },
+                            required: ['layerId', 'xOffset', 'yOffset', 'individualScale']
+                        }
+                    },
+                    safetyReport: {
+                        type: Type.OBJECT,
+                        properties: {
+                            allowedBleed: { type: Type.BOOLEAN },
+                            violationCount: { type: Type.INTEGER }
+                        },
+                        required: ['allowedBleed', 'violationCount']
+                    }
                 },
-                required: ['suggestedScale', 'anchor', 'generativePrompt', 'reasoning']
+                required: ['suggestedScale', 'anchor', 'generativePrompt', 'reasoning', 'overrides', 'safetyReport']
             }
         }
       });
@@ -144,7 +178,6 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
     }
   };
 
-  // Helper for Ghost Preview
   const getPreviewStyle = (w: number, h: number, color: string) => {
      const maxDim = 60;
      const ratio = w / h;
@@ -162,6 +195,7 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
   };
 
   const isReady = !!sourceData && !!targetData;
+  const overrideCount = strategy?.overrides?.length || 0;
 
   return (
     <div className="w-80 bg-slate-900 rounded-lg shadow-2xl border border-pink-500/50 overflow-hidden font-sans flex flex-col">
@@ -202,21 +236,37 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
          {strategy && (
              <div className="bg-slate-800 border-l-2 border-pink-500 p-2 rounded text-[10px] space-y-2 animate-fadeIn">
                  <div className="flex justify-between border-b border-slate-700 pb-1">
-                    <span className="text-pink-300 font-bold">SUGGESTED STRATEGY</span>
+                    <span className="text-pink-300 font-bold">SEMANTIC RECOMPOSITION</span>
                     <span className="text-slate-400">{strategy.anchor}</span>
                  </div>
-                 <div className="grid grid-cols-2 gap-2">
+                 
+                 <div className="grid grid-cols-2 gap-2 mt-1">
                     <div>
-                        <span className="block text-slate-500">Scale</span>
+                        <span className="block text-slate-500">Global Scale</span>
                         <span className="text-slate-200 font-mono">{strategy.suggestedScale.toFixed(3)}x</span>
                     </div>
+                    <div>
+                        <span className="block text-slate-500">Overrides</span>
+                        <span className={`${overrideCount > 0 ? 'text-pink-400 font-bold' : 'text-slate-400'}`}>
+                            {overrideCount} Layers
+                        </span>
+                    </div>
                  </div>
-                 <div className="italic text-slate-400 leading-tight">
+
+                 <div className="italic text-slate-400 leading-tight border-l-2 border-slate-600 pl-2 my-1">
                     "{strategy.reasoning}"
                  </div>
+
+                 {strategy.safetyReport && strategy.safetyReport.violationCount > 0 && (
+                     <div className="bg-orange-900/30 text-orange-200 p-1 rounded flex items-center space-x-1">
+                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                         <span>{strategy.safetyReport.violationCount} Boundary Warnings</span>
+                     </div>
+                 )}
+
                  {strategy.generativePrompt && (
-                     <div className="bg-black/30 p-1.5 rounded text-pink-200/80 font-mono text-[9px] border border-pink-900/30">
-                        PROMPT: {strategy.generativePrompt}
+                     <div className="bg-black/30 p-1.5 rounded text-pink-200/80 font-mono text-[9px] border border-pink-900/30 truncate">
+                        GEN: {strategy.generativePrompt}
                      </div>
                  )}
              </div>
@@ -237,7 +287,12 @@ export const DesignAnalystNode = memo(({ id }: NodeProps<PSDNodeData>) => {
                   : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
                }`}
          >
-            {isAnalyzing ? "Reasoning..." : "Analyze Layout"}
+            {isAnalyzing ? (
+                <div className="flex items-center justify-center space-x-2">
+                    <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Analyst Thinking...</span>
+                </div>
+            ) : "Analyze Layout"}
          </button>
       </div>
 
