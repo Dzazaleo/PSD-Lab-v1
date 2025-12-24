@@ -1,7 +1,8 @@
 import React, { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Handle, Position, NodeProps, useEdges, Node, useReactFlow, NodeResizer } from 'reactflow';
-import { PSDNodeData, LayoutStrategy, SerializableLayer, MAX_BOUNDARY_VIOLATION_PERCENT, ChatMessage, TemplateMetadata } from '../types';
+import { Handle, Position, NodeProps, useEdges, NodeResizer, useReactFlow } from 'reactflow';
+import { PSDNodeData, LayoutStrategy, SerializableLayer, MAX_BOUNDARY_VIOLATION_PERCENT, ChatMessage, TemplateMetadata, AnalystInstanceState, ContainerContext } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
+import { getSemanticThemeObject } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
 
 // Define the exact union type for model keys to match PSDNodeData
@@ -15,7 +16,6 @@ interface ModelConfig {
   thinkingBudget?: number;
 }
 
-// Strictly typed model configuration
 const MODELS: Record<ModelKey, ModelConfig> = {
   'gemini-3-flash': {
     apiModel: 'gemini-3-flash-preview',
@@ -72,55 +72,275 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
                      <span>{strategy.safetyReport.violationCount} Boundary Warnings</span>
                  </div>
              )}
+        </div>
+    );
+};
 
-             {strategy.generativePrompt && (
-                 <div 
-                    className="bg-slate-950 p-2 rounded border border-slate-800 font-mono text-[10px] whitespace-pre-wrap break-words max-h-24 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-track]:bg-transparent"
-                    onWheel={(e) => e.stopPropagation()}
-                 >
-                    {strategy.generativePrompt}
-                 </div>
-             )}
+// --- Subcomponent: Instance Row ---
+interface InstanceRowProps {
+    nodeId: string;
+    index: number;
+    state: AnalystInstanceState;
+    sourceData: {
+        container: ContainerContext;
+        layers: any[];
+    } | null;
+    targetData: {
+        bounds: { w: number, h: number };
+        name: string;
+    } | null;
+    onAnalyze: (index: number) => void;
+    onRefine: (index: number, text: string) => void;
+    onModelChange: (index: number, model: ModelKey) => void;
+    isAnalyzing: boolean;
+}
+
+const InstanceRow: React.FC<InstanceRowProps> = ({ 
+    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, isAnalyzing 
+}) => {
+    const [inputText, setInputText] = useState('');
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+    
+    // Auto-scroll chat
+    useEffect(() => {
+        if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+    }, [state.chatHistory.length, isAnalyzing]);
+
+    const activeModelConfig = MODELS[state.selectedModel];
+    const isReady = !!sourceData && !!targetData;
+    
+    // Theme derivation for UI coloring
+    const targetName = targetData?.name || (sourceData?.container.containerName) || 'Unknown';
+    // Use procedural palette but darken slightly for background usage
+    const theme = getSemanticThemeObject(targetName, index);
+
+    const handleRefineClick = () => {
+        if (!inputText.trim()) return;
+        onRefine(index, inputText);
+        setInputText('');
+    };
+
+    const getPreviewStyle = (w: number, h: number, color: string) => {
+        const maxDim = 32; 
+        const ratio = w / h;
+        let styleW = maxDim;
+        let styleH = maxDim;
+        
+        if (ratio > 1) { styleH = maxDim / ratio; }
+        else { styleW = maxDim * ratio; }
+   
+        return {
+            width: `${styleW}px`,
+            height: `${styleH}px`,
+            borderColor: color
+        };
+     };
+
+    return (
+        <div className="relative border-b border-slate-700/50 bg-slate-800/30 first:border-t-0">
+            {/* Instance Header */}
+            <div className={`px-2 py-1.5 flex items-center justify-between ${theme.bg.replace('/20', '/10')}`}>
+                <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 rounded-full ${theme.dot}`}></div>
+                    <span className={`text-[10px] font-bold tracking-wide uppercase ${theme.text}`}>
+                        {targetData?.name || `Instance ${index + 1}`}
+                    </span>
+                </div>
+                
+                {/* Model Selector */}
+                <div className="relative">
+                     <select 
+                        value={state.selectedModel}
+                        onChange={(e) => onModelChange(index, e.target.value as ModelKey)}
+                        className={`appearance-none text-[8px] px-1.5 py-0.5 pr-3 rounded font-mono font-bold cursor-pointer outline-none border transition-colors duration-300 ${activeModelConfig.badgeClass}`}
+                     >
+                         <option value="gemini-3-flash" className="text-black bg-white">FLASH</option>
+                         <option value="gemini-3-pro" className="text-black bg-white">PRO</option>
+                         <option value="gemini-3-pro-thinking" className="text-black bg-white">DEEP</option>
+                     </select>
+                </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="p-2 space-y-2">
+                
+                {/* Visual Wiring & Preview Row */}
+                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative">
+                    
+                    {/* Left Inputs */}
+                    <div className="flex flex-col space-y-2 relative">
+                         <div className="relative pl-3 flex items-center">
+                            <Handle 
+                                type="target" 
+                                position={Position.Left} 
+                                id={`source-in-${index}`} 
+                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-slate-800 z-50"
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                            />
+                            <span className={`text-[8px] font-mono ${sourceData ? 'text-indigo-300' : 'text-slate-600'} truncate w-16`}>
+                                {sourceData ? 'SRC: LINKED' : 'SRC: WAIT'}
+                            </span>
+                         </div>
+                         <div className="relative pl-3 flex items-center">
+                            <Handle 
+                                type="target" 
+                                position={Position.Left} 
+                                id={`target-in-${index}`} 
+                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-slate-800 z-50"
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                            />
+                            <span className={`text-[8px] font-mono ${targetData ? 'text-emerald-300' : 'text-slate-600'} truncate w-16`}>
+                                {targetData ? 'TGT: LINKED' : 'TGT: WAIT'}
+                            </span>
+                         </div>
+                    </div>
+
+                    {/* Center Preview */}
+                    <div className="flex items-center space-x-2">
+                        <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
+                                style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 24, height: 24, borderColor: '#334155' }}>
+                        </div>
+                        <svg className="w-3 h-3 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                        <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10 transition-all duration-300" 
+                                style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 24, height: 24, borderColor: '#334155' }}>
+                        </div>
+                    </div>
+
+                    {/* Right Outputs */}
+                    <div className="flex flex-col space-y-2 items-end relative">
+                        <div className="relative pr-3 flex items-center justify-end">
+                            <span className="text-[8px] font-mono text-slate-500 mr-1">OUT</span>
+                            <Handle 
+                                type="source" 
+                                position={Position.Right} 
+                                id={`source-out-${index}`} 
+                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-white z-50" 
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                            />
+                        </div>
+                        {/* Strategy Output handle is technically implicit in the source-out via registry, but adding explicit handle for clarity if needed later */}
+                    </div>
+                </div>
+
+                {/* Chat Console */}
+                <div 
+                    ref={chatContainerRef}
+                    className="h-32 overflow-y-auto border border-slate-700 bg-slate-900 rounded p-2 space-y-2 custom-scrollbar"
+                    onWheel={(e) => e.stopPropagation()} 
+                >
+                    {state.chatHistory.length === 0 && (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-600 italic text-[10px] opacity-50">
+                            <span>Ready to analyze {targetData?.name || 'slot'}</span>
+                        </div>
+                    )}
+                    {state.chatHistory.map((msg, idx) => (
+                        <div key={msg.id || idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                            <div className={`max-w-[95%] rounded border p-1.5 text-[10px] leading-relaxed
+                                ${msg.role === 'user' 
+                                     ? 'bg-slate-800 border-slate-600 text-slate-200' 
+                                     : `bg-slate-800/50 ${activeModelConfig.badgeClass.replace('bg-', 'border-').split(' ')[0]} text-slate-300`
+                                }`}
+                            >
+                                {msg.parts?.[0]?.text && msg.role === 'user' && (
+                                    <div className="whitespace-pre-wrap break-words">{msg.parts[0].text}</div>
+                                )}
+                                {msg.strategySnapshot && (
+                                    <div className="mt-1">
+                                        <StrategyCard strategy={msg.strategySnapshot} modelConfig={activeModelConfig} />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    {isAnalyzing && (
+                        <div className="flex items-center space-x-2 text-[10px] text-slate-400 animate-pulse">
+                            <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>
+                            <span>Analyst is thinking...</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Control Footer */}
+                <div className="flex space-x-1">
+                     <textarea
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onWheel={(e) => e.stopPropagation()}
+                        placeholder="Refinement instructions..."
+                        disabled={!isReady || isAnalyzing}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-[10px] text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-8"
+                     />
+                     <div className="flex flex-col space-y-0.5 w-16">
+                        <button
+                            onClick={() => onAnalyze(index)}
+                            disabled={!isReady || isAnalyzing}
+                            className={`flex-1 rounded text-[8px] font-bold uppercase transition-all shadow-sm
+                                ${isReady && !isAnalyzing 
+                                    ? 'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600'
+                                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+                                }`}
+                        >
+                            Analyze
+                        </button>
+                        <button
+                            onClick={handleRefineClick}
+                            disabled={!isReady || isAnalyzing || inputText.trim().length === 0}
+                            className={`flex-1 rounded text-[8px] font-bold uppercase transition-all shadow-sm
+                                ${inputText.trim().length > 0 && !isAnalyzing
+                                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400'
+                                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+                                }`}
+                        >
+                            Refine
+                        </button>
+                     </div>
+                </div>
+            </div>
         </div>
     );
 };
 
 export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [inputText, setInputText] = useState('');
-  
+  const [analyzingInstances, setAnalyzingInstances] = useState<Record<number, boolean>>({});
+  const instanceCount = data.instanceCount || 1;
+  const analystInstances = data.analystInstances || {};
+
   const edges = useEdges();
   const { setNodes } = useReactFlow();
-  const chatContainerRef = useRef<HTMLDivElement>(null);
   
   const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, registerAnalysis, unregisterNode } = useProceduralStore();
 
-  // Determine current model state (Persistent)
-  const selectedModelKey: ModelKey = (data.selectedModel && MODELS[data.selectedModel]) 
-    ? data.selectedModel 
-    : 'gemini-3-flash';
-    
-  const activeModelConfig = MODELS[selectedModelKey];
-  const chatHistory = data.chatHistory || [];
-
-  // Scroll to bottom of chat on update
   useEffect(() => {
-    if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [chatHistory.length, isAnalyzing]);
+    return () => unregisterNode(id);
+  }, [id, unregisterNode]);
 
-  // 1. Upstream Data Retrieval
-  const sourceData = useMemo(() => {
-    const edge = edges.find(e => e.target === id && e.targetHandle === 'source-in');
+  // Derived Title
+  const activeContainerNames = Object.values(analystInstances)
+    .map((inst, idx) => {
+        // Try to find the container name from the target edge
+        const edge = edges.find(e => e.target === id && e.targetHandle === `target-in-${idx}`);
+        return edge?.sourceHandle?.replace('slot-bounds-', '') || null;
+    })
+    .filter(Boolean);
+    
+  const titleSuffix = activeContainerNames.length > 0 
+    ? `(${activeContainerNames.join(', ')})` 
+    : '(Waiting...)';
+
+  // --- Helpers to resolve connection data per instance ---
+  const getSourceData = useCallback((index: number) => {
+    const edge = edges.find(e => e.target === id && e.targetHandle === `source-in-${index}`);
     if (!edge || !edge.sourceHandle) return null;
     const registry = resolvedRegistry[edge.source];
     return registry ? registry[edge.sourceHandle] : null;
   }, [edges, id, resolvedRegistry]);
 
-  const targetData = useMemo(() => {
-    const edge = edges.find(e => e.target === id && e.targetHandle === 'target-in');
+  const getTargetData = useCallback((index: number) => {
+    const edge = edges.find(e => e.target === id && e.targetHandle === `target-in-${index}`);
     if (!edge) return null;
     
     const template = templateRegistry[edge.source];
@@ -131,66 +351,93 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         containerName = containerName.replace('slot-bounds-', '');
     }
 
-    return template.containers.find(c => c.name === containerName);
+    const container = template.containers.find(c => c.name === containerName);
+    return container ? { bounds: container.bounds, name: container.name } : null;
   }, [edges, id, templateRegistry]);
 
+  // --- Store Synchronization Effect ---
+  // Registers source-out pass-through and strategy for EACH instance
   useEffect(() => {
-    return () => unregisterNode(id);
-  }, [id, unregisterNode]);
+    for (let i = 0; i < instanceCount; i++) {
+        const sourceData = getSourceData(i);
+        const targetData = getTargetData(i);
+        const instanceState = analystInstances[i];
 
-  // Dynamic Node Title based on connection status
-  const nodeTitle = useMemo(() => {
-      if (sourceData?.container?.containerName) {
-          return `Design Analyst (${sourceData.container.containerName})`;
-      }
-      return 'Design Analyst (Waiting...)';
-  }, [sourceData]);
-
-  // 2. Pass-Through Data Registration
-  // Registers inputs as outputs under THIS node's ID to allow daisy-chaining to Remapper
-  useEffect(() => {
-    if (sourceData) {
-        registerResolved(id, 'source-out', sourceData);
-    }
-    if (targetData) {
-        const syntheticTemplate: TemplateMetadata = {
-            canvas: { width: 1000, height: 1000 },
-            containers: [targetData]
-        };
-        registerTemplate(id, syntheticTemplate);
-    }
-  }, [id, sourceData, targetData, registerResolved, registerTemplate]);
-
-  // Handle Model Change
-  const handleModelChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newModel = e.target.value as ModelKey;
-    setNodes((nds) => 
-      nds.map((node) => {
-        if (node.id === id) {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              selectedModel: newModel
-            }
-          };
+        // 1. Pass-through registration for Remapper consumption (Source Layer Context)
+        if (sourceData) {
+            registerResolved(id, `source-out-${i}`, sourceData);
         }
-        return node;
-      })
-    );
+
+        // 2. Strategy registration
+        if (instanceState && instanceState.layoutStrategy) {
+            registerAnalysis(id, `source-out-${i}`, instanceState.layoutStrategy);
+        }
+        
+        // 3. Synthetic Template Registration (Optional, mainly for debug/completeness)
+        if (targetData) {
+            // We don't necessarily need to register a template output unless we add `target-out` handles
+            // But if we did:
+            // registerTemplate(...)
+        }
+    }
+  }, [id, instanceCount, analystInstances, getSourceData, getTargetData, registerResolved, registerAnalysis]);
+
+
+  // --- Action Handlers ---
+
+  const addInstance = useCallback(() => {
+    setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+            return {
+                ...n,
+                data: {
+                    ...n.data,
+                    instanceCount: (n.data.instanceCount || 0) + 1
+                }
+            };
+        }
+        return n;
+    }));
   }, [id, setNodes]);
 
-  // --- AI Logic Helpers ---
-  
-  const generateSystemInstruction = (isRefining: boolean) => {
-    if (!sourceData || !targetData) return "";
+  const updateInstanceState = useCallback((index: number, updates: Partial<AnalystInstanceState>) => {
+    setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+            const currentInstances = n.data.analystInstances || {};
+            const oldState = currentInstances[index] || {
+                chatHistory: [],
+                layoutStrategy: null,
+                selectedModel: 'gemini-3-flash'
+            };
+            
+            return {
+                ...n,
+                data: {
+                    ...n.data,
+                    analystInstances: {
+                        ...currentInstances,
+                        [index]: { ...oldState, ...updates }
+                    }
+                }
+            };
+        }
+        return n;
+    }));
+  }, [id, setNodes]);
 
+  const handleModelChange = (index: number, model: ModelKey) => {
+      updateInstanceState(index, { selectedModel: model });
+  };
+
+  // --- AI Logic ---
+  
+  const generateSystemInstruction = (sourceData: any, targetData: any, isRefining: boolean) => {
     const sourceW = sourceData.container.bounds.w;
     const sourceH = sourceData.container.bounds.h;
     const targetW = targetData.bounds.w;
     const targetH = targetData.bounds.h;
 
-    // Deep recursion to flatten hierarchy for the AI to see all movable parts
+    // Flatten layers for context
     const flattenLayers = (layers: SerializableLayer[], depth = 0): any[] => {
         let flat: any[] = [];
         layers.forEach(l => {
@@ -199,7 +446,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
                 name: l.name,
                 type: l.type,
                 depth: depth,
-                // Relative dimensions to the source container
                 relX: (l.coords.x - sourceData.container.bounds.x) / sourceW,
                 relY: (l.coords.y - sourceData.container.bounds.y) / sourceH,
                 width: l.coords.w,
@@ -217,75 +463,68 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     let prompt = `
         ROLE: Precision Drafting Engine & Senior PSD Compositor.
         GOAL: Perform "Geometry-First Semantic Recomposition" using a STRICT GRID SYSTEM.
-
-        CONTEXT:
-        - Source Container Dimensions: ${sourceW}px x ${sourceH}px (Ratio: ${(sourceW / sourceH).toFixed(2)})
-        - Target Slot Dimensions: ${targetW}px x ${targetH}px (Ratio: ${(targetW / targetH).toFixed(2)})
-        - Allowable Boundary Bleed: ${MAX_BOUNDARY_VIOLATION_PERCENT * 100}% (${(targetH * MAX_BOUNDARY_VIOLATION_PERCENT).toFixed(0)}px)
+        
+        CONTAINER CONTEXT:
+        - Source: ${sourceData.container.containerName} (${sourceW}x${sourceH})
+        - Target: ${targetData.name} (${targetW}x${targetH})
         
         LAYER HIERARCHY (JSON):
-        ${JSON.stringify(layerAnalysisData.slice(0, 50))} ... (Truncated for token limit)
+        ${JSON.stringify(layerAnalysisData.slice(0, 40))} ... (Truncated)
 
-        CRITICAL INSTRUCTION - THE GRID SYSTEM:
-        If the Target is significantly TALLER than the Source (e.g. 0.5 ratio vs 1.7 ratio):
-        1. DIVIDE the Target Height (${targetH}px) by the number of primary visual elements to create virtual "slots" (e.g. if 4 items, slot height = ${Math.floor(targetH / 4)}px).
-        2. ASSIGN each primary layer to a specific vertical slot (Quadrants 1, 2, 3, 4...).
-        3. CENTER the layer within that quadrant.
-        4. CALCULATE 'yOffset' as the integer distance from the Target Container TOP (0).
-        
-        ZERO-TOLERANCE MATH:
-        - Any layer whose (yOffset + (height * suggestedScale)) > ${targetH * (1 + MAX_BOUNDARY_VIOLATION_PERCENT)} is a CRITICAL FAILURE.
-        - You MUST validate your math. Do not guess.
-        
-        HIERARCHY AWARENESS:
-        - Explicitly map key layers (Title, CTA, Images) to specific yOffsets (e.g. 0, 200, 400) based on the calculated grid.
-      `;
+        CRITICAL GRID LOGIC:
+        1. Analyze the Target Aspect Ratio (${(targetW/targetH).toFixed(2)}) vs Source (${(sourceW/sourceH).toFixed(2)}).
+        2. If Target is narrower/taller, STACK elements vertically.
+        3. If Target is wider, distribute horizontally.
+        4. Calculate integer 'yOffset' and 'xOffset' relative to Target Top-Left (0,0).
+        5. Maintain visual hierarchy: Key elements (Titles) must be prominent.
+    `;
+    
+    if (isRefining) {
+        prompt += `\n\nUSER FEEDBACK RECEIVED. Adjust the 'overrides' array to satisfy the user request while maintaining valid JSON structure and boundary safety.`;
+    }
 
-      if (isRefining) {
-          prompt += `\n\nYou are reviewing your previous layout suggestion. The user has provided feedback. Adjust the layerOverrides JSON while maintaining the established 3% safety margin. If the user's request contradicts a design rule, explain why in the 'reasoning' field but prioritize their art direction.`;
-      }
-
-      return prompt;
+    return prompt;
   };
 
-  const performAnalysis = async (history: ChatMessage[]) => {
-      setIsAnalyzing(true);
-      setError(null);
+  const performAnalysis = async (index: number, history: ChatMessage[]) => {
+      const sourceData = getSourceData(index);
+      const targetData = getTargetData(index);
+      
+      if (!sourceData || !targetData) return;
+      
+      const instanceState = analystInstances[index] || { selectedModel: 'gemini-3-flash' };
+      const modelConfig = MODELS[instanceState.selectedModel as ModelKey];
+      
+      setAnalyzingInstances(prev => ({ ...prev, [index]: true }));
 
       try {
         const apiKey = process.env.API_KEY;
-        if (!apiKey) throw new Error("API_KEY not set in environment");
+        if (!apiKey) throw new Error("API_KEY missing");
 
         const ai = new GoogleGenAI({ apiKey });
-        const systemInstruction = generateSystemInstruction(history.length > 1);
+        const systemInstruction = generateSystemInstruction(sourceData, targetData, history.length > 1);
 
-        // Convert ChatMessage[] to Gemini Content[]
-        const contents = history.map(msg => ({
-            role: msg.role,
-            parts: msg.parts
-        }));
+        const contents = history.map(msg => ({ role: msg.role, parts: msg.parts }));
 
-        // Configure Request
         const requestConfig: any = {
             systemInstruction,
             responseMimeType: "application/json",
             responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                    suggestedScale: { type: Type.NUMBER, description: "Base scale factor." },
+                    suggestedScale: { type: Type.NUMBER },
                     anchor: { type: Type.STRING, enum: ['TOP', 'CENTER', 'BOTTOM', 'STRETCH'] },
                     generativePrompt: { type: Type.STRING },
                     reasoning: { type: Type.STRING },
                     overrides: {
                         type: Type.ARRAY,
-                        description: "Precise pixel coordinates for layer recomposition.",
                         items: {
                             type: Type.OBJECT,
                             properties: {
                                 layerId: { type: Type.STRING },
-                                xOffset: { type: Type.NUMBER, description: "Distance in pixels from Target LEFT." },
-                                yOffset: { type: Type.NUMBER, description: "Distance in pixels from Target TOP." },
-                                individualScale: { type: Type.NUMBER, description: "Scale multiplier." }
+                                xOffset: { type: Type.NUMBER },
+                                yOffset: { type: Type.NUMBER },
+                                individualScale: { type: Type.NUMBER }
                             },
                             required: ['layerId', 'xOffset', 'yOffset', 'individualScale']
                         }
@@ -302,13 +541,13 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
                 required: ['suggestedScale', 'anchor', 'generativePrompt', 'reasoning', 'overrides', 'safetyReport']
             }
         };
-
-        if (activeModelConfig.thinkingBudget) {
-            requestConfig.thinkingConfig = { thinkingBudget: activeModelConfig.thinkingBudget };
+        
+        if (modelConfig.thinkingBudget) {
+            requestConfig.thinkingConfig = { thinkingBudget: modelConfig.thinkingBudget };
         }
 
         const response = await ai.models.generateContent({
-            model: activeModelConfig.apiModel,
+            model: modelConfig.apiModel,
             contents,
             config: requestConfig
         });
@@ -323,328 +562,107 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
             timestamp: Date.now()
         };
 
-        // Update Node Data
-        setNodes((nds) => 
-            nds.map((n) => {
-            if (n.id === id) {
-                // Ensure we append to the history that was passed in, which includes the pending user message if refining
-                const finalHistory = [...history, newAiMessage];
-                return { 
-                    ...n, 
-                    data: { 
-                        ...n.data, 
-                        layoutStrategy: json, 
-                        chatHistory: finalHistory
-                    } 
-                };
-            }
-            return n;
-            })
-        );
+        const finalHistory = [...history, newAiMessage];
         
-        // Trigger downstream updates
-        registerAnalysis(id, json);
+        updateInstanceState(index, {
+            chatHistory: finalHistory,
+            layoutStrategy: json
+        });
 
       } catch (e: any) {
-          console.error("Gemini Analysis Failed:", e);
-          setError(e.message || "AI Analysis Failed");
-          // Remove the optimistic user message if it failed? 
-          // For now, we leave it but show error.
+          console.error("Analysis Failed:", e);
+          // Optional: Add error message to chat
       } finally {
-          setIsAnalyzing(false);
+          setAnalyzingInstances(prev => ({ ...prev, [index]: false }));
       }
   };
 
-  // 3. Handlers
-  const handleAnalyze = () => {
-      if (!sourceData || !targetData) return;
-      
-      const initialUserMsg: ChatMessage = {
+  const handleAnalyze = (index: number) => {
+      const initialMsg: ChatMessage = {
           id: Date.now().toString(),
           role: 'user',
-          parts: [{ text: "Perform initial grid-based semantic analysis." }],
+          parts: [{ text: "Generate grid layout." }],
           timestamp: Date.now()
       };
-
-      // Reset history for fresh analysis
-      setNodes((nds) => nds.map(n => n.id === id ? { ...n, data: { ...n.data, chatHistory: [initialUserMsg] } } : n));
       
-      performAnalysis([initialUserMsg]);
+      updateInstanceState(index, { chatHistory: [initialMsg] });
+      performAnalysis(index, [initialMsg]);
   };
 
-  const handleRefine = () => {
-      if (!inputText.trim()) return;
-
-      const newUserMessage: ChatMessage = {
+  const handleRefine = (index: number, text: string) => {
+      const currentHistory = analystInstances[index]?.chatHistory || [];
+      const userMsg: ChatMessage = {
           id: Date.now().toString(),
           role: 'user',
-          parts: [{ text: inputText }],
+          parts: [{ text }],
           timestamp: Date.now()
       };
-
-      // Optimistically update UI
-      const updatedHistory = [...chatHistory, newUserMessage];
-      setNodes((nds) => nds.map(n => n.id === id ? { ...n, data: { ...n.data, chatHistory: updatedHistory } } : n));
       
-      setInputText('');
-      performAnalysis(updatedHistory);
+      const updatedHistory = [...currentHistory, userMsg];
+      updateInstanceState(index, { chatHistory: updatedHistory });
+      performAnalysis(index, updatedHistory);
   };
-
-  const getPreviewStyle = (w: number, h: number, color: string) => {
-     const maxDim = 50; // Increased slightly for single row visibility
-     const ratio = w / h;
-     let styleW = maxDim;
-     let styleH = maxDim;
-     
-     if (ratio > 1) { styleH = maxDim / ratio; }
-     else { styleW = maxDim * ratio; }
-
-     return {
-         width: `${styleW}px`,
-         height: `${styleH}px`,
-         borderColor: color
-     };
-  };
-
-  const isReady = !!sourceData && !!targetData;
 
   return (
-    // REMOVED overflow-hidden to allow handles to sit on the border
-    <div className="w-full h-full bg-slate-800 rounded-lg shadow-xl border border-slate-600 font-sans flex flex-col transition-colors duration-300">
+    <div className="w-full min-w-[320px] bg-slate-800 rounded-lg shadow-2xl border border-slate-600 font-sans flex flex-col transition-colors duration-300">
       <NodeResizer 
           minWidth={450} 
-          minHeight={600} 
+          minHeight={300} 
           isVisible={true} 
           handleStyle={{ background: 'transparent', border: 'none' }}
           lineStyle={{ border: 'none' }}
       />
-      
-      {/* Header */}
+
+      {/* Main Header */}
       <div className="bg-slate-900 p-2 border-b border-slate-700 flex items-center justify-between shrink-0 rounded-t-lg">
          <div className="flex items-center space-x-2">
-           <svg className={`w-4 h-4 ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-600' : 'text-slate-100'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+           <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
            </svg>
-           <span className={`text-sm font-bold ${activeModelConfig.badgeClass.includes('yellow') ? 'text-yellow-800' : 'text-slate-100'}`}>
-              {nodeTitle}
-           </span>
-         </div>
-         
-         {/* Model Selector Badge */}
-         <div className="relative group">
-             <select 
-                value={selectedModelKey}
-                onChange={handleModelChange}
-                className={`appearance-none text-[9px] px-2 py-0.5 pr-4 rounded font-mono font-bold cursor-pointer outline-none border transition-colors duration-300 ${activeModelConfig.badgeClass}`}
-             >
-                 <option value="gemini-3-flash" className="text-black bg-white">FLASH</option>
-                 <option value="gemini-3-pro" className="text-black bg-white">PRO</option>
-                 <option value="gemini-3-pro-thinking" className="text-black bg-white">DEEP THINKING</option>
-             </select>
-             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1">
-                <svg className="h-2 w-2 fill-current opacity-75" viewBox="0 0 20 20">
-                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-                </svg>
-             </div>
+           <div className="flex flex-col leading-none">
+             <span className="text-sm font-bold text-purple-100">Design Analyst</span>
+             <span className="text-[9px] text-purple-400 max-w-[200px] truncate">{titleSuffix}</span>
+           </div>
          </div>
       </div>
 
-      {/* Main Body */}
-      <div className="flex-1 flex flex-col min-h-0 bg-slate-900">
-         {/* Visual Feedback Area - Updated with Absolute Handles */}
-         <div className="shrink-0 border-b border-slate-700 bg-slate-800/50 py-4 flex items-center justify-between min-h-[100px] relative">
-             
-             {/* Left Group: Inputs - Removed pl-4 to allow handle to sit on edge */}
-             <div className="flex flex-col justify-center space-y-6 z-10 w-24 pl-0 relative">
-                 {/* Source In */}
-                 <div className="relative flex items-center pl-3">
-                    <Handle 
-                        type="target" 
-                        position={Position.Left} 
-                        id="source-in" 
-                        // Docked to the left edge of the node (-left-1.5)
-                        className="!absolute !-left-1.5 !w-3 !h-3 !bg-indigo-500 !border-2 !border-slate-800 z-50"
-                        style={{ top: '50%', transform: 'translateY(-50%)' }}
-                        title="Source Context (From Resolver)" 
-                    />
-                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider truncate">SOURCE</span>
-                 </div>
-                 
-                 {/* Target In */}
-                 <div className="relative flex items-center pl-3">
-                    <Handle 
-                        type="target" 
-                        position={Position.Left} 
-                        id="target-in" 
-                        className="!absolute !-left-1.5 !w-3 !h-3 !bg-emerald-500 !border-2 !border-slate-800 z-50"
-                        style={{ top: '50%', transform: 'translateY(-50%)' }}
-                        title="Target Slot (From Splitter)" 
-                    />
-                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider truncate">TARGET</span>
-                 </div>
-             </div>
-
-             {/* Center Stage: Previews */}
-             <div className="flex-1 flex items-center justify-center space-x-6 mx-2">
-                 
-                 {/* Source Preview */}
-                 <div className="flex flex-col items-center space-y-1">
-                    <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
-                            style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 40, height: 40, borderColor: '#334155' }}>
-                    </div>
-                    <span className="text-[8px] font-mono text-slate-500">
-                        {sourceData ? `${sourceData.container.bounds.w}x${sourceData.container.bounds.h}` : '---'}
-                    </span>
-                 </div>
-
-                 {/* Directional Arrow */}
-                 <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                 </svg>
-
-                 {/* Target Preview */}
-                 <div className="flex flex-col items-center space-y-1">
-                    <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10 transition-all duration-300" 
-                            style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 40, height: 40, borderColor: '#334155' }}>
-                    </div>
-                    <span className="text-[8px] font-mono text-slate-500">
-                         {targetData ? `${targetData.bounds.w}x${targetData.bounds.h}` : '---'}
-                    </span>
-                 </div>
-
-             </div>
-
-             {/* Right Group: Outputs - Removed pr-4 */}
-             <div className="flex flex-col justify-center space-y-6 z-10 items-end w-24 pr-0 relative">
-                 {/* Source Out */}
-                 <div className="relative flex items-center justify-end pr-3">
-                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider mr-2 truncate">SOURCE</span>
-                    <Handle 
-                        type="source" 
-                        position={Position.Right} 
-                        id="source-out" 
-                        // Docked to the right edge of the node (-right-1.5)
-                        className="!absolute !-right-1.5 !w-3 !h-3 !bg-indigo-500 !border-2 !border-white z-50" 
-                        style={{ top: '50%', transform: 'translateY(-50%)' }}
-                        title="Analyzed Source (To Remapper)" 
-                    />
-                 </div>
-                 
-                 {/* Target Out */}
-                 <div className="relative flex items-center justify-end pr-3">
-                    <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider mr-2 truncate">TARGET</span>
-                    <Handle 
-                        type="source" 
-                        position={Position.Right} 
-                        id="target-out" 
-                        className="!absolute !-right-1.5 !w-3 !h-3 !bg-emerald-500 !border-2 !border-white z-50" 
-                        style={{ top: '50%', transform: 'translateY(-50%)' }}
-                        title="Target Reference (To Remapper)" 
-                    />
-                 </div>
-             </div>
-         </div>
-
-         {/* Chat History Container */}
-         <div 
-            ref={chatContainerRef}
-            className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-track]:bg-transparent"
-            onWheel={(e) => e.stopPropagation()}
-         >
-             {chatHistory.length === 0 && (
-                 <div className="h-full flex flex-col items-center justify-center text-slate-600 italic text-xs opacity-50 space-y-2">
-                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                     <span>Ready for analysis</span>
-                 </div>
-             )}
-
-             {chatHistory.map((msg, idx) => (
-                 <div key={msg.id || idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                     <div className={`max-w-[95%] rounded-lg border p-2 text-xs 
-                        ${msg.role === 'user' 
-                             ? 'bg-slate-800 border-slate-600 text-slate-200' 
-                             : `bg-slate-900/50 ${activeModelConfig.badgeClass.replace('bg-', 'border-').split(' ')[0]} text-slate-300`
-                        }`}
-                     >
-                        {msg.role === 'model' && (
-                             <div className="flex items-center space-x-1 mb-1 text-[9px] font-bold opacity-50 uppercase tracking-wider">
-                                 <span>{activeModelConfig.label}</span>
-                                 <span>•</span>
-                                 <span>{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                             </div>
-                        )}
-
-                        {/* Updated to use parts[0].text instead of content */}
-                        {msg.parts?.[0]?.text && msg.role === 'user' && (
-                            <div className="whitespace-pre-wrap break-words leading-relaxed">{msg.parts[0].text}</div>
-                        )}
-                        
-                        {msg.strategySnapshot && (
-                            <div className="mt-1">
-                                <StrategyCard strategy={msg.strategySnapshot} modelConfig={activeModelConfig} />
-                            </div>
-                        )}
-                     </div>
-                 </div>
-             ))}
-
-             {isAnalyzing && (
-                 <div className="flex flex-col items-start animate-pulse">
-                      <div className={`max-w-[80%] rounded-lg border p-2 bg-slate-900/50 ${activeModelConfig.badgeClass.replace('bg-', 'border-').split(' ')[0]}`}>
-                          <div className="flex items-center space-x-2 text-xs text-slate-400">
-                             <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                             <span>Generating semantic layout...</span>
-                          </div>
-                      </div>
-                 </div>
-             )}
-
-             {error && (
-                 <div className="p-2 rounded bg-red-900/20 border border-red-800/50 text-red-300 text-xs">
-                     Error: {error}
-                 </div>
-             )}
-         </div>
-
-         {/* Footer: Input Area */}
-         <div className="p-3 border-t border-slate-800 bg-slate-800/30 space-y-2 shrink-0">
-             <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onWheel={(e) => e.stopPropagation()}
-                placeholder={isReady ? "Describe refinement (e.g., 'Make the headline bigger')..." : "Connect inputs to start..."}
-                disabled={!isReady || isAnalyzing}
-                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 nodrag nopan resize-none h-16 custom-scrollbar scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-track]:bg-transparent"
-             />
-             
-             <div className="flex space-x-2">
-                 {/* Primary Action changes based on context */}
-                 <button
-                    onClick={handleAnalyze}
-                    disabled={!isReady || isAnalyzing}
-                    className={`flex-1 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm
-                        ${isReady && !isAnalyzing 
-                            ? 'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600'
-                            : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
-                        }`}
-                 >
-                    {chatHistory.length > 0 ? "Reset Analysis" : "Analyze Layout"}
-                 </button>
-
-                 <button
-                    onClick={handleRefine}
-                    disabled={!isReady || isAnalyzing || inputText.trim().length === 0}
-                    className={`flex-1 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm
-                        ${inputText.trim().length > 0 && !isAnalyzing
-                            ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400'
-                            : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
-                        }`}
-                 >
-                    Refine Selection
-                 </button>
-             </div>
-         </div>
+      {/* Instances Container */}
+      <div className="flex flex-col">
+          {Array.from({ length: instanceCount }).map((_, i) => {
+              const state = analystInstances[i] || { 
+                  chatHistory: [], 
+                  layoutStrategy: null, 
+                  selectedModel: 'gemini-3-flash' 
+              };
+              
+              return (
+                  <InstanceRow 
+                      key={i}
+                      nodeId={id}
+                      index={i}
+                      state={state}
+                      sourceData={getSourceData(i)}
+                      targetData={getTargetData(i)}
+                      onAnalyze={handleAnalyze}
+                      onRefine={handleRefine}
+                      onModelChange={handleModelChange}
+                      isAnalyzing={!!analyzingInstances[i]}
+                  />
+              );
+          })}
       </div>
+
+      {/* Footer Action */}
+      <button 
+        onClick={addInstance}
+        className="w-full py-2 bg-slate-800 hover:bg-slate-700 border-t border-slate-700 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1 rounded-b-lg"
+      >
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+        <span className="text-[10px] font-medium uppercase tracking-wider">Add Analysis Instance</span>
+      </button>
+
     </div>
   );
 });

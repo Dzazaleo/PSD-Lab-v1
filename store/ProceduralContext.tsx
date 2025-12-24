@@ -15,8 +15,9 @@ interface ProceduralState {
   // Maps NodeID -> HandleID -> Transformed Payload (Ready for Assembly)
   payloadRegistry: Record<string, Record<string, TransformedPayload>>;
 
-  // Maps NodeID -> LayoutStrategy (AI Analysis)
-  analysisRegistry: Record<string, LayoutStrategy>;
+  // Maps NodeID -> HandleID -> LayoutStrategy (AI Analysis)
+  // Changed from Record<string, LayoutStrategy> to support multi-instance
+  analysisRegistry: Record<string, Record<string, LayoutStrategy>>;
 
   // Global counter to force re-evaluation of downstream nodes upon binary re-hydration
   globalVersion: number;
@@ -27,7 +28,7 @@ interface ProceduralContextType extends ProceduralState {
   registerTemplate: (nodeId: string, template: TemplateMetadata) => void;
   registerResolved: (nodeId: string, handleId: string, context: MappingContext) => void;
   registerPayload: (nodeId: string, handleId: string, payload: TransformedPayload) => void;
-  registerAnalysis: (nodeId: string, strategy: LayoutStrategy) => void;
+  registerAnalysis: (nodeId: string, handleId: string, strategy: LayoutStrategy) => void;
   unregisterNode: (nodeId: string) => void;
   triggerGlobalRefresh: () => void;
 }
@@ -39,7 +40,7 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
   const [templateRegistry, setTemplateRegistry] = useState<Record<string, TemplateMetadata>>({});
   const [resolvedRegistry, setResolvedRegistry] = useState<Record<string, Record<string, MappingContext>>>({});
   const [payloadRegistry, setPayloadRegistry] = useState<Record<string, Record<string, TransformedPayload>>>({});
-  const [analysisRegistry, setAnalysisRegistry] = useState<Record<string, LayoutStrategy>>({});
+  const [analysisRegistry, setAnalysisRegistry] = useState<Record<string, Record<string, LayoutStrategy>>>({});
   const [globalVersion, setGlobalVersion] = useState<number>(0);
 
   const registerPsd = useCallback((nodeId: string, psd: Psd) => {
@@ -89,11 +90,21 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, []);
 
-  const registerAnalysis = useCallback((nodeId: string, strategy: LayoutStrategy) => {
+  const registerAnalysis = useCallback((nodeId: string, handleId: string, strategy: LayoutStrategy) => {
     setAnalysisRegistry(prev => {
-        if (prev[nodeId] === strategy) return prev;
-        if (JSON.stringify(prev[nodeId]) === JSON.stringify(strategy)) return prev;
-        return { ...prev, [nodeId]: strategy };
+        const nodeRecord = prev[nodeId] || {};
+        const currentStrategy = nodeRecord[handleId];
+        
+        if (currentStrategy === strategy) return prev;
+        if (currentStrategy && JSON.stringify(currentStrategy) === JSON.stringify(strategy)) return prev;
+        
+        return { 
+            ...prev, 
+            [nodeId]: {
+                ...nodeRecord,
+                [handleId]: strategy
+            } 
+        };
     });
   }, []);
 

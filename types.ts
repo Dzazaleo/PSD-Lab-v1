@@ -146,6 +146,12 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface AnalystInstanceState {
+  chatHistory: ChatMessage[];
+  layoutStrategy: LayoutStrategy | null;
+  selectedModel: 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
+}
+
 export interface PSDNodeData {
   fileName: string | null;
   template: TemplateMetadata | null;
@@ -156,13 +162,20 @@ export interface PSDNodeData {
   targetAssembly?: TargetAssembly | null; // For TargetSplitterNode output
   remapperConfig?: RemapperConfig | null; // For RemapperNode state
   transformedPayload?: TransformedPayload | null; // For RemapperNode output
-  layoutStrategy?: LayoutStrategy | null; // For DesignAnalystNode output
-  error?: string | null;
+  
   // Dynamic State Persistence
   channelCount?: number;
   instanceCount?: number;
+  
+  // Multi-Instance Analysis State
+  analystInstances?: Record<number, AnalystInstanceState>;
+  
+  // Legacy Single-Instance Fields (Kept for backward compatibility if needed, but deprecated)
+  layoutStrategy?: LayoutStrategy | null; 
   selectedModel?: 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
   chatHistory?: ChatMessage[];
+
+  error?: string | null;
 }
 
 export interface TargetTemplateData {

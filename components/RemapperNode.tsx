@@ -9,6 +9,7 @@ interface InstanceData {
     ready: boolean;
     name?: string;
     nodeId?: string;
+    handleId?: string; // Added to track specific source handle
     originalBounds?: any;
     layers?: any[];
   };
@@ -62,9 +63,10 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                         ready: true,
                         name: context.container.containerName,
                         nodeId: binarySourceId,
+                        sourceNodeId: sourceEdge.source,
+                        handleId: sourceEdge.sourceHandle, // Important for strategy lookup
                         layers: context.layers,
                         originalBounds: context.container.bounds,
-                        sourceNodeId: sourceEdge.source
                     };
                  }
              }
@@ -113,8 +115,10 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
             let anchorX = targetRect.x;
             let anchorY = targetRect.y;
 
-            // AI: Check for Strategy in Registry using the immediate Source Node ID
-            const strategy = analysisRegistry[sourceData.sourceNodeId];
+            // AI: Check for Strategy in Registry using the immediate Source Node ID AND Handle ID
+            // Supports Multi-Instance Analysts where multiple strategies come from the same Node ID
+            const strategyNodeMap = analysisRegistry[sourceData.sourceNodeId];
+            const strategy = strategyNodeMap ? strategyNodeMap[sourceData.handleId] : undefined;
             
             if (strategy) {
                 scale = strategy.suggestedScale;
