@@ -1,5 +1,5 @@
 import React, { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Handle, Position, NodeProps, useEdges, NodeResizer, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useEdges, NodeResizer, useReactFlow, useUpdateNodeInternals } from 'reactflow';
 import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystInstanceState, ContainerContext, TemplateMetadata, ContainerDefinition, MappingContext } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject } from '../services/psdService';
@@ -171,43 +171,43 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
             <div className={`p-2 space-y-2 ${compactMode ? 'text-[9px]' : ''}`}>
                 
                 {/* Visual Wiring & Preview Row */}
-                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative min-h-[50px] overflow-visible">
+                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative min-h-[60px] overflow-visible">
                     
                     {/* Left Inputs (Source + Target) */}
-                    <div className="flex flex-col space-y-3 relative justify-center">
+                    <div className="flex flex-col gap-4 relative justify-center h-full">
                          {/* SOURCE INPUT */}
-                         <div className="relative pl-3 flex items-center group">
+                         <div className="relative flex items-center group h-4">
                             <Handle 
                                 type="target" 
                                 position={Position.Left} 
                                 id={`source-in-${index}`} 
-                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-slate-800 z-50 transition-transform hover:scale-125"
-                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                className="!absolute !-left-6 !w-3 !h-3 !rounded-full !bg-indigo-500 !border-2 !border-slate-800 z-50 transition-transform hover:scale-125"
+                                style={{ top: '50%', transform: 'translate(-50%, -50%)' }}
                                 title="Input: Source Context"
                             />
-                            <span className={`text-[8px] font-mono ${sourceData ? 'text-indigo-300' : 'text-slate-600'} truncate w-16`}>
-                                {sourceData ? 'SRC: LINKED' : 'SRC: WAIT'}
+                            <span className={`text-[9px] font-mono font-bold leading-none ${sourceData ? 'text-indigo-300' : 'text-slate-600'} ml-1`}>
+                                SRC
                             </span>
                          </div>
                          
                          {/* TARGET INPUT */}
-                         <div className="relative pl-3 flex items-center group">
+                         <div className="relative flex items-center group h-4">
                             <Handle 
                                 type="target" 
                                 position={Position.Left} 
                                 id={`target-in-${index}`} 
-                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-slate-800 z-50 transition-transform hover:scale-125"
-                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                className="!absolute !-left-6 !w-3 !h-3 !rounded-full !bg-emerald-500 !border-2 !border-slate-800 z-50 transition-transform hover:scale-125"
+                                style={{ top: '50%', transform: 'translate(-50%, -50%)' }}
                                 title="Input: Target Definition"
                             />
-                            <span className={`text-[8px] font-mono ${targetData ? 'text-emerald-300' : 'text-slate-600'} truncate w-16`}>
-                                {targetData ? 'TGT: LINKED' : 'TGT: WAIT'}
+                            <span className={`text-[9px] font-mono font-bold leading-none ${targetData ? 'text-emerald-300' : 'text-slate-600'} ml-1`}>
+                                TGT
                             </span>
                          </div>
                     </div>
 
                     {/* Center Preview */}
-                    <div className="flex items-start space-x-3 mx-4">
+                    <div className="flex items-center justify-center space-x-3 mx-4 border-x border-slate-700/20 px-4 flex-1">
                         {/* Source Preview */}
                         <div className="flex flex-col items-center gap-1">
                             <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
@@ -221,7 +221,7 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                         </div>
 
                         {/* Arrow */}
-                        <div className="mt-2">
+                        <div className="">
                             <svg className="w-3 h-3 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                             </svg>
@@ -241,29 +241,29 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                     </div>
 
                     {/* Right Outputs (Source Relay, Target Relay) */}
-                    <div className="flex flex-col space-y-3 items-end relative justify-center">
+                    <div className="flex flex-col gap-4 items-end relative justify-center h-full">
                         {/* SOURCE RELAY */}
-                        <div className="relative pr-3 flex items-center justify-end group">
-                            <span className="text-[8px] font-mono text-slate-500 mr-1">DAT</span>
+                        <div className="relative flex items-center justify-end group h-4">
+                            <span className="text-[9px] font-mono font-bold leading-none text-slate-500 mr-1">SOURCE</span>
                             <Handle 
                                 type="source" 
                                 position={Position.Right} 
                                 id={`source-out-${index}`} 
-                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
-                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                className="!absolute !-right-6 !w-3 !h-3 !rounded-full !bg-indigo-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
+                                style={{ top: '50%', transform: 'translate(50%, -50%)' }}
                                 title="Relay: Source Data + AI Strategy"
                             />
                         </div>
 
                         {/* TARGET RELAY */}
-                        <div className="relative pr-3 flex items-center justify-end group">
-                            <span className="text-[8px] font-mono text-slate-500 mr-1">TGT</span>
+                        <div className="relative flex items-center justify-end group h-4">
+                            <span className="text-[9px] font-mono font-bold leading-none text-slate-500 mr-1">TARGET</span>
                             <Handle 
                                 type="source" 
                                 position={Position.Right} 
                                 id={`target-out-${index}`} 
-                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
-                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                className="!absolute !-right-6 !w-3 !h-3 !rounded-full !bg-emerald-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
+                                style={{ top: '50%', transform: 'translate(50%, -50%)' }}
                                 title="Relay: Target Definition"
                             />
                         </div>
@@ -359,12 +359,18 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
   const edges = useEdges();
   const { setNodes } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   
   const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, unregisterNode } = useProceduralStore();
 
   useEffect(() => {
     return () => unregisterNode(id);
   }, [id, unregisterNode]);
+
+  // Handle Updates: Notify React Flow of internal layout changes when instances are added/removed
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, instanceCount, updateNodeInternals]);
 
   // Derived Title: Dynamically resolve connected container names via source inputs
   const activeContainerNames = useMemo(() => {
