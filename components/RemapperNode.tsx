@@ -81,22 +81,44 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
         if (targetEdge && targetEdge.sourceHandle) {
              const template = templateRegistry[targetEdge.source];
              if (template) {
-                 let containerName = targetEdge.sourceHandle;
-                 if (containerName.startsWith('slot-bounds-')) {
-                     containerName = containerName.replace('slot-bounds-', '');
+                 const handle = targetEdge.sourceHandle;
+                 let containerDefinition;
+
+                 // Strategy A: Exact Name Match (e.g. "BG")
+                 containerDefinition = template.containers.find(c => c.name === handle);
+
+                 // Strategy B: Bounds Prefix Match (e.g. "slot-bounds-BG")
+                 if (!containerDefinition && handle.startsWith('slot-bounds-')) {
+                     const clean = handle.replace('slot-bounds-', '');
+                     containerDefinition = template.containers.find(c => c.name === clean);
                  }
 
-                 let container = template.containers.find(c => c.name === containerName);
-                 if (!container && template.containers.length === 1) {
-                     container = template.containers[0];
-                     containerName = container.name;
+                 // Strategy C: Indexed Handle Match (e.g. "target-out-0")
+                 // This resolves proxy handles from DesignAnalystNode to the actual container by index
+                 if (!containerDefinition) {
+                     const indexMatch = handle.match(/^target-out-(\d+)$/);
+                     if (indexMatch) {
+                         const index = parseInt(indexMatch[1], 10);
+                         // Access container by index if valid
+                         if (template.containers[index]) {
+                             containerDefinition = template.containers[index];
+                         }
+                     }
                  }
 
-                 if (container) {
+                 // Strategy D: Fallback for Single Container Templates
+                 if (!containerDefinition && template.containers.length === 1) {
+                     containerDefinition = template.containers[0];
+                 }
+
+                 if (containerDefinition) {
                      targetData = {
                          ready: true,
-                         name: containerName,
-                         bounds: container.bounds
+                         // CRITICAL: Prefer originalName (e.g., "BG") over name (e.g., "target-out-0").
+                         // This ensures the payload carries the semantic name required by the Export node,
+                         // even if the connection comes from a proxy node with synthetic naming.
+                         name: containerDefinition.originalName || containerDefinition.name,
+                         bounds: containerDefinition.bounds
                      };
                  }
              }
@@ -227,7 +249,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
               status: 'success',
               sourceNodeId: sourceData.nodeId,
               sourceContainer: sourceData.name,
-              targetContainer: targetData.name,
+              targetContainer: targetData.name, // Will be originalName (e.g. "BG")
               layers: transformedLayers,
               scaleFactor: scale,
               metrics: {

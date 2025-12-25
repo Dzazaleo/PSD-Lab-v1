@@ -23,9 +23,10 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
 
   const containers = templateMetadata?.containers || [];
 
-  // 2. Map Connections to Payloads from Store
-  const slotConnections = useMemo(() => {
+  // 2. Map Connections to Payloads from Store with Strict Validation
+  const { slotConnections, validationErrors } = useMemo(() => {
     const map = new Map<string, TransformedPayload>();
+    const errors: string[] = [];
     
     edges.forEach(edge => {
       if (edge.target !== id) return;
@@ -33,37 +34,39 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       // Look for edges connected to our dynamic input handles (e.g., input-SYMBOLS)
       if (!edge.targetHandle?.startsWith('input-')) return;
 
-      // STRICT VALIDATION: Only accept connections from Remapper Output handles
-      // This supports the multi-instance logic where outputs are named 'result-out-${index}'
-      if (!edge.sourceHandle?.startsWith('result-out-')) return;
-
-      // Extract container name from handle ID
-      const containerName = edge.targetHandle.replace('input-', '');
+      // Extract container name from handle ID (e.g. "SYMBOLS")
+      const slotName = edge.targetHandle.replace('input-', '');
       
-      // Fetch payload from store using source node ID AND source Handle ID (New Structure)
+      // Fetch payload from store using source node ID AND source Handle ID
       const sourceNodePayloads = payloadRegistry[edge.source];
-      const payload = sourceNodePayloads ? sourceNodePayloads[edge.sourceHandle] : undefined;
+      const payload = sourceNodePayloads ? sourceNodePayloads[edge.sourceHandle || ''] : undefined;
 
       if (payload) {
-         // MAPPING CONFIRMATION: Verify payload intends to target this specific slot
-         // If a user connects "SYMBOLS" output to "BG" slot, we reject it to ensure integrity.
-         if (payload.targetContainer === containerName) {
-             map.set(containerName, payload);
+         // SOURCE OF TRUTH: Payload.targetContainer
+         // We use the payload's internal intent to validate the visual wiring.
+         const semanticTarget = payload.targetContainer;
+
+         if (semanticTarget === slotName) {
+             map.set(slotName, payload);
          } else {
-             console.warn(`Export Assembly Mismatch: Slot '${containerName}' received payload targeting '${payload.targetContainer}'`);
+             // FALLBACK: Mismatch detected - Strictly enforce procedural integrity
+             const msg = `PROCEDURAL VIOLATION: Payload targeting '${semanticTarget}' is miswired to slot '${slotName}'.`;
+             console.error(msg);
+             errors.push(msg);
          }
       }
     });
 
-    return map;
+    return { slotConnections: map, validationErrors: errors };
   }, [edges, id, payloadRegistry]);
 
   // 3. Status Calculation
   const totalSlots = containers.length;
   const filledSlots = slotConnections.size;
   const isTemplateReady = !!templateMetadata;
-  // Enable export only when all slots defined in the template are filled
-  const isFullyAssembled = isTemplateReady && filledSlots === totalSlots && totalSlots > 0;
+  
+  // Enable export only when all slots defined in the template are filled AND no validation errors exist
+  const isFullyAssembled = isTemplateReady && filledSlots === totalSlots && totalSlots > 0 && validationErrors.length === 0;
   
   // 4. Export Logic
   const handleExport = async () => {
@@ -82,7 +85,6 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       };
 
       // B. Helper to recursively clone and transform layers
-      // This function handles the "Recursive Group Assembly" by calling itself for children
       const reconstructHierarchy = (
         transformedLayers: TransformedLayer[], 
         sourcePsd: Psd
@@ -102,7 +104,7 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
                     right: metaLayer.coords.x + metaLayer.coords.w,
                     hidden: !metaLayer.isVisible,
                     opacity: metaLayer.opacity * 255, // Convert back to 0-255
-                    children: undefined // Will be repopulated if group
+                    children: undefined // Explicitly cleared, repopulated below if group
                 };
 
                 // RECURSIVE GROUP DETECTION
@@ -127,8 +129,7 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
           if (payload) {
               const sourcePsd = psdRegistry[payload.sourceNodeId];
               if (!sourcePsd) {
-                  console.warn(`Source PSD binaries missing for node ${payload.sourceNodeId}`);
-                  continue;
+                  throw new Error(`Binary PSD data missing for source node: ${payload.sourceNodeId}. Please reload the source file.`);
               }
 
               const reconstructedContent = reconstructHierarchy(payload.layers, sourcePsd);
@@ -252,6 +253,18 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
                   {filledSlots} / {totalSlots} SLOTS
               </span>
           </div>
+
+          {/* Validation Errors Display */}
+          {validationErrors.length > 0 && (
+               <div className="mb-2 p-2 bg-orange-900/30 border border-orange-800/50 rounded space-y-1">
+                   {validationErrors.map((err, i) => (
+                       <div key={i} className="text-[9px] text-orange-200 flex items-start space-x-1">
+                           <span className="font-bold text-orange-500 shrink-0">!</span>
+                           <span className="leading-tight">{err}</span>
+                       </div>
+                   ))}
+               </div>
+          )}
 
           {exportError && (
               <div className="text-[10px] bg-red-900/40 text-red-200 p-2 rounded border border-red-800/50 mb-2">
