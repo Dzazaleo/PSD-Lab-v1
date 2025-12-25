@@ -94,6 +94,8 @@ export interface MappingContext {
   layers: SerializableLayer[] | TransformedLayer[];
   status: 'resolved' | 'empty' | 'transformed';
   message?: string;
+  // Metadata Injection: AI Strategy travels with the data
+  aiStrategy?: LayoutStrategy;
 }
 
 export interface ValidationIssue {

@@ -1,6 +1,6 @@
 import React, { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Handle, Position, NodeProps, useEdges, NodeResizer, useReactFlow } from 'reactflow';
-import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystInstanceState, ContainerContext, TemplateMetadata, ContainerDefinition } from '../types';
+import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystInstanceState, ContainerContext, TemplateMetadata, ContainerDefinition, MappingContext } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -117,7 +117,8 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
     // Use procedural palette but darken slightly for background usage
     const theme = getSemanticThemeObject(targetName, index);
 
-    const handleRefineClick = () => {
+    const handleRefineClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
         if (!inputText.trim()) return;
         onRefine(index, inputText);
         setInputText('');
@@ -155,7 +156,9 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                      <select 
                         value={state.selectedModel}
                         onChange={(e) => onModelChange(index, e.target.value as ModelKey)}
-                        className={`appearance-none text-[8px] px-1.5 py-0.5 pr-3 rounded font-mono font-bold cursor-pointer outline-none border transition-colors duration-300 ${activeModelConfig.badgeClass}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className={`nodrag nopan appearance-none text-[8px] px-1.5 py-0.5 pr-3 rounded font-mono font-bold cursor-pointer outline-none border transition-colors duration-300 ${activeModelConfig.badgeClass}`}
                      >
                          <option value="gemini-3-flash" className="text-black bg-white">FLASH</option>
                          <option value="gemini-3-pro" className="text-black bg-white">PRO</option>
@@ -168,7 +171,7 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
             <div className={`p-2 space-y-2 ${compactMode ? 'text-[9px]' : ''}`}>
                 
                 {/* Visual Wiring & Preview Row */}
-                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative min-h-[50px]">
+                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative min-h-[50px] overflow-visible">
                     
                     {/* Left Inputs (Source + Target) */}
                     <div className="flex flex-col space-y-3 relative justify-center">
@@ -204,19 +207,40 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                     </div>
 
                     {/* Center Preview */}
-                    <div className="flex items-center space-x-2 mx-4">
-                        <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
-                                style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 24, height: 24, borderColor: '#334155' }}>
+                    <div className="flex items-start space-x-3 mx-4">
+                        {/* Source Preview */}
+                        <div className="flex flex-col items-center gap-1">
+                            <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
+                                    style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 24, height: 24, borderColor: '#334155' }}>
+                            </div>
+                            {sourceData && (
+                                <span className="text-[7px] font-mono text-slate-500 leading-none">
+                                    {Math.round(sourceData.container.bounds.w)}x{Math.round(sourceData.container.bounds.h)}
+                                </span>
+                            )}
                         </div>
-                        <svg className="w-3 h-3 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                        <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10 transition-all duration-300" 
-                                style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 24, height: 24, borderColor: '#334155' }}>
+
+                        {/* Arrow */}
+                        <div className="mt-2">
+                            <svg className="w-3 h-3 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                            </svg>
+                        </div>
+                        
+                        {/* Target Preview */}
+                        <div className="flex flex-col items-center gap-1">
+                            <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10 transition-all duration-300" 
+                                    style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 24, height: 24, borderColor: '#334155' }}>
+                            </div>
+                             {targetData && (
+                                <span className="text-[7px] font-mono text-slate-500 leading-none">
+                                    {Math.round(targetData.bounds.w)}x{Math.round(targetData.bounds.h)}
+                                </span>
+                            )}
                         </div>
                     </div>
 
-                    {/* Right Outputs (Source Relay, Target Relay, Strategy) */}
+                    {/* Right Outputs (Source Relay, Target Relay) */}
                     <div className="flex flex-col space-y-3 items-end relative justify-center">
                         {/* SOURCE RELAY */}
                         <div className="relative pr-3 flex items-center justify-end group">
@@ -227,7 +251,7 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                                 id={`source-out-${index}`} 
                                 className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
                                 style={{ top: '50%', transform: 'translateY(-50%)' }}
-                                title="Relay: Source Data"
+                                title="Relay: Source Data + AI Strategy"
                             />
                         </div>
 
@@ -243,27 +267,15 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                                 title="Relay: Target Definition"
                             />
                         </div>
-
-                        {/* STRATEGY OUT */}
-                        <div className="relative pr-3 flex items-center justify-end group">
-                            <span className="text-[8px] font-mono text-slate-500 mr-1">AI</span>
-                            <Handle 
-                                type="source" 
-                                position={Position.Right} 
-                                id={`strategy-out-${index}`} 
-                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-purple-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
-                                style={{ top: '50%', transform: 'translateY(-50%)' }}
-                                title="Output: Layout Strategy JSON"
-                            />
-                        </div>
                     </div>
                 </div>
 
                 {/* Chat Console */}
                 <div 
                     ref={chatContainerRef}
-                    className={`${compactMode ? 'h-24' : 'h-32'} overflow-y-auto border border-slate-700 bg-slate-900 rounded p-2 space-y-2 custom-scrollbar transition-all`}
+                    className={`nodrag nopan ${compactMode ? 'h-24' : 'h-32'} overflow-y-auto border border-slate-700 bg-slate-900 rounded p-2 space-y-2 custom-scrollbar transition-all`}
                     onWheel={(e) => e.stopPropagation()} 
+                    onMouseDown={(e) => e.stopPropagation()}
                 >
                     {state.chatHistory.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-slate-600 italic text-[10px] opacity-50">
@@ -303,15 +315,17 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         onWheel={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         placeholder="Refinement instructions..."
                         disabled={!isReady || isAnalyzing}
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-[10px] text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-8"
+                        className="nodrag nopan flex-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-[10px] text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-8"
                      />
                      <div className="flex flex-col space-y-0.5 w-16">
                         <button
-                            onClick={() => onAnalyze(index)}
+                            onClick={(e) => { e.stopPropagation(); onAnalyze(index); }}
+                            onMouseDown={(e) => e.stopPropagation()}
                             disabled={!isReady || isAnalyzing}
-                            className={`flex-1 rounded text-[8px] font-bold uppercase transition-all shadow-sm
+                            className={`nodrag nopan flex-1 rounded text-[8px] font-bold uppercase transition-all shadow-sm
                                 ${isReady && !isAnalyzing 
                                     ? 'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600'
                                     : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
@@ -321,8 +335,9 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                         </button>
                         <button
                             onClick={handleRefineClick}
+                            onMouseDown={(e) => e.stopPropagation()}
                             disabled={!isReady || isAnalyzing || inputText.trim().length === 0}
-                            className={`flex-1 rounded text-[8px] font-bold uppercase transition-all shadow-sm
+                            className={`nodrag nopan flex-1 rounded text-[8px] font-bold uppercase transition-all shadow-sm
                                 ${inputText.trim().length > 0 && !isAnalyzing
                                     ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400'
                                     : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
@@ -345,20 +360,30 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   const edges = useEdges();
   const { setNodes } = useReactFlow();
   
-  const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, registerAnalysis, unregisterNode } = useProceduralStore();
+  const { resolvedRegistry, templateRegistry, registerResolved, registerTemplate, unregisterNode } = useProceduralStore();
 
   useEffect(() => {
     return () => unregisterNode(id);
   }, [id, unregisterNode]);
 
-  // Derived Title
-  const activeContainerNames = Object.values(analystInstances)
-    .map((inst, idx) => {
-        // Try to find the container name from the target edge
-        const edge = edges.find(e => e.target === id && e.targetHandle === `target-in-${idx}`);
-        return edge?.sourceHandle?.replace('slot-bounds-', '') || null;
-    })
-    .filter(Boolean);
+  // Derived Title: Dynamically resolve connected container names via source inputs
+  const activeContainerNames = useMemo(() => {
+    const names: string[] = [];
+    for (let i = 0; i < instanceCount; i++) {
+        // Find edge connected to source-in-${i}
+        const sourceEdge = edges.find(e => e.target === id && e.targetHandle === `source-in-${i}`);
+        if (sourceEdge) {
+            // Retrieve MappingContext from Registry
+            const registry = resolvedRegistry[sourceEdge.source];
+            const context = registry ? registry[sourceEdge.sourceHandle || ''] : null;
+            
+            if (context?.container?.containerName) {
+                names.push(context.container.containerName);
+            }
+        }
+    }
+    return names;
+  }, [edges, id, instanceCount, resolvedRegistry]);
     
   const titleSuffix = activeContainerNames.length > 0 
     ? `(${activeContainerNames.join(', ')})` 
@@ -389,7 +414,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   }, [edges, id, templateRegistry]);
 
   // --- Store Synchronization Effect ---
-  // Registers source/target relays and strategy for EACH instance
+  // Registers source/target relays and injects metadata for EACH instance
   useEffect(() => {
     const syntheticContainers: ContainerDefinition[] = [];
     let canvasDims = { width: 0, height: 0 };
@@ -399,10 +424,17 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         const targetData = getTargetData(i);
         const instanceState = analystInstances[i];
 
-        // 1. Source Relay (ResolvedRegistry)
-        // Pass-through layer data to source-out handle so Remapper can consume it
+        // 1. Source Relay with Metadata Injection (ResolvedRegistry)
+        // Pass-through layer data to source-out handle but inject the AI Strategy into the context
         if (sourceData) {
-            registerResolved(id, `source-out-${i}`, sourceData);
+            // Clone the context to avoid mutating the original reference from upstream
+            const augmentedContext: MappingContext = {
+                ...sourceData,
+                // Inject the strategy if it exists for this instance
+                aiStrategy: instanceState?.layoutStrategy || undefined
+            };
+            
+            registerResolved(id, `source-out-${i}`, augmentedContext);
         }
 
         // 2. Target Relay (TemplateRegistry Construction)
@@ -432,15 +464,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
                 }
             });
         }
-
-        // 3. Strategy Registration (AnalysisRegistry)
-        if (instanceState && instanceState.layoutStrategy) {
-            // Register on source-out for standard Remapper consumption (connected to Source)
-            registerAnalysis(id, `source-out-${i}`, instanceState.layoutStrategy);
-            
-            // Register on strategy-out for explicit strategy consumption
-            registerAnalysis(id, `strategy-out-${i}`, instanceState.layoutStrategy);
-        }
     }
 
     // Register the aggregated synthetic template if we have data
@@ -452,7 +475,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         registerTemplate(id, syntheticTemplate);
     }
 
-  }, [id, instanceCount, analystInstances, getSourceData, getTargetData, registerResolved, registerAnalysis, registerTemplate, edges, templateRegistry]);
+  }, [id, instanceCount, analystInstances, getSourceData, getTargetData, registerResolved, registerTemplate, edges, templateRegistry]);
 
 
   // --- Action Handlers ---

@@ -1,6 +1,6 @@
 import React, { memo, useMemo, useEffect, useCallback } from 'react';
 import { Handle, Position, NodeProps, useEdges, useReactFlow, useNodes } from 'reactflow';
-import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer, MAX_BOUNDARY_VIOLATION_PERCENT } from '../types';
+import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer, MAX_BOUNDARY_VIOLATION_PERCENT, LayoutStrategy } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 
 interface InstanceData {
@@ -12,6 +12,7 @@ interface InstanceData {
     handleId?: string; // Added to track specific source handle
     originalBounds?: any;
     layers?: any[];
+    aiStrategy?: LayoutStrategy; // Metadata injection from upstream
   };
   target: {
     ready: boolean;
@@ -31,7 +32,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
   const nodes = useNodes();
   
   // Consume data from Store
-  const { templateRegistry, resolvedRegistry, analysisRegistry, registerPayload, unregisterNode } = useProceduralStore();
+  const { templateRegistry, resolvedRegistry, registerPayload, unregisterNode } = useProceduralStore();
 
   // Cleanup
   useEffect(() => {
@@ -67,6 +68,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                         handleId: sourceEdge.sourceHandle, // Important for strategy lookup
                         layers: context.layers,
                         originalBounds: context.container.bounds,
+                        aiStrategy: context.aiStrategy // Extract injected strategy if present
                     };
                  }
              }
@@ -115,10 +117,9 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
             let anchorX = targetRect.x;
             let anchorY = targetRect.y;
 
-            // AI: Check for Strategy in Registry using the immediate Source Node ID AND Handle ID
-            // Supports Multi-Instance Analysts where multiple strategies come from the same Node ID
-            const strategyNodeMap = analysisRegistry[sourceData.sourceNodeId];
-            const strategy = strategyNodeMap ? strategyNodeMap[sourceData.handleId] : undefined;
+            // AI: Check for Strategy Injected in Source Data
+            // This is the metadata injection pattern (Analyst -> Remapper)
+            const strategy = sourceData.aiStrategy;
             
             if (strategy) {
                 scale = strategy.suggestedScale;
@@ -246,7 +247,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
     }
 
     return result;
-  }, [instanceCount, edges, id, resolvedRegistry, templateRegistry, nodes, analysisRegistry]);
+  }, [instanceCount, edges, id, resolvedRegistry, templateRegistry, nodes]);
 
 
   // Sync Payloads to Store
