@@ -1,6 +1,6 @@
 import React, { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Handle, Position, NodeProps, useEdges, NodeResizer, useReactFlow } from 'reactflow';
-import { PSDNodeData, LayoutStrategy, SerializableLayer, MAX_BOUNDARY_VIOLATION_PERCENT, ChatMessage, TemplateMetadata, AnalystInstanceState, ContainerContext } from '../types';
+import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystInstanceState, ContainerContext, TemplateMetadata, ContainerDefinition } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -93,10 +93,11 @@ interface InstanceRowProps {
     onRefine: (index: number, text: string) => void;
     onModelChange: (index: number, model: ModelKey) => void;
     isAnalyzing: boolean;
+    compactMode: boolean;
 }
 
 const InstanceRow: React.FC<InstanceRowProps> = ({ 
-    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, isAnalyzing 
+    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, isAnalyzing, compactMode 
 }) => {
     const [inputText, setInputText] = useState('');
     const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -123,7 +124,7 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
     };
 
     const getPreviewStyle = (w: number, h: number, color: string) => {
-        const maxDim = 32; 
+        const maxDim = compactMode ? 24 : 32; 
         const ratio = w / h;
         let styleW = maxDim;
         let styleH = maxDim;
@@ -139,7 +140,7 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
      };
 
     return (
-        <div className="relative border-b border-slate-700/50 bg-slate-800/30 first:border-t-0">
+        <div className={`relative border-b border-slate-700/50 bg-slate-800/30 first:border-t-0 ${compactMode ? 'py-1' : ''}`}>
             {/* Instance Header */}
             <div className={`px-2 py-1.5 flex items-center justify-between ${theme.bg.replace('/20', '/10')}`}>
                 <div className="flex items-center space-x-2">
@@ -164,32 +165,37 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
             </div>
 
             {/* Main Content Area */}
-            <div className="p-2 space-y-2">
+            <div className={`p-2 space-y-2 ${compactMode ? 'text-[9px]' : ''}`}>
                 
                 {/* Visual Wiring & Preview Row */}
-                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative">
+                <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative min-h-[50px]">
                     
-                    {/* Left Inputs */}
-                    <div className="flex flex-col space-y-2 relative">
-                         <div className="relative pl-3 flex items-center">
+                    {/* Left Inputs (Source + Target) */}
+                    <div className="flex flex-col space-y-3 relative justify-center">
+                         {/* SOURCE INPUT */}
+                         <div className="relative pl-3 flex items-center group">
                             <Handle 
                                 type="target" 
                                 position={Position.Left} 
                                 id={`source-in-${index}`} 
-                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-slate-800 z-50"
+                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-slate-800 z-50 transition-transform hover:scale-125"
                                 style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title="Input: Source Context"
                             />
                             <span className={`text-[8px] font-mono ${sourceData ? 'text-indigo-300' : 'text-slate-600'} truncate w-16`}>
                                 {sourceData ? 'SRC: LINKED' : 'SRC: WAIT'}
                             </span>
                          </div>
-                         <div className="relative pl-3 flex items-center">
+                         
+                         {/* TARGET INPUT */}
+                         <div className="relative pl-3 flex items-center group">
                             <Handle 
                                 type="target" 
                                 position={Position.Left} 
                                 id={`target-in-${index}`} 
-                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-slate-800 z-50"
+                                className="!absolute !-left-3.5 !w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-slate-800 z-50 transition-transform hover:scale-125"
                                 style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title="Input: Target Definition"
                             />
                             <span className={`text-[8px] font-mono ${targetData ? 'text-emerald-300' : 'text-slate-600'} truncate w-16`}>
                                 {targetData ? 'TGT: LINKED' : 'TGT: WAIT'}
@@ -198,7 +204,7 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                     </div>
 
                     {/* Center Preview */}
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 mx-4">
                         <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" 
                                 style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 24, height: 24, borderColor: '#334155' }}>
                         </div>
@@ -210,26 +216,53 @@ const InstanceRow: React.FC<InstanceRowProps> = ({
                         </div>
                     </div>
 
-                    {/* Right Outputs */}
-                    <div className="flex flex-col space-y-2 items-end relative">
-                        <div className="relative pr-3 flex items-center justify-end">
-                            <span className="text-[8px] font-mono text-slate-500 mr-1">OUT</span>
+                    {/* Right Outputs (Source Relay, Target Relay, Strategy) */}
+                    <div className="flex flex-col space-y-3 items-end relative justify-center">
+                        {/* SOURCE RELAY */}
+                        <div className="relative pr-3 flex items-center justify-end group">
+                            <span className="text-[8px] font-mono text-slate-500 mr-1">DAT</span>
                             <Handle 
                                 type="source" 
                                 position={Position.Right} 
                                 id={`source-out-${index}`} 
-                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-white z-50" 
+                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-indigo-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
                                 style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title="Relay: Source Data"
                             />
                         </div>
-                        {/* Strategy Output handle is technically implicit in the source-out via registry, but adding explicit handle for clarity if needed later */}
+
+                        {/* TARGET RELAY */}
+                        <div className="relative pr-3 flex items-center justify-end group">
+                            <span className="text-[8px] font-mono text-slate-500 mr-1">TGT</span>
+                            <Handle 
+                                type="source" 
+                                position={Position.Right} 
+                                id={`target-out-${index}`} 
+                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title="Relay: Target Definition"
+                            />
+                        </div>
+
+                        {/* STRATEGY OUT */}
+                        <div className="relative pr-3 flex items-center justify-end group">
+                            <span className="text-[8px] font-mono text-slate-500 mr-1">AI</span>
+                            <Handle 
+                                type="source" 
+                                position={Position.Right} 
+                                id={`strategy-out-${index}`} 
+                                className="!absolute !-right-3.5 !w-2.5 !h-2.5 !bg-purple-500 !border-2 !border-white z-50 transition-transform hover:scale-125" 
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                title="Output: Layout Strategy JSON"
+                            />
+                        </div>
                     </div>
                 </div>
 
                 {/* Chat Console */}
                 <div 
                     ref={chatContainerRef}
-                    className="h-32 overflow-y-auto border border-slate-700 bg-slate-900 rounded p-2 space-y-2 custom-scrollbar"
+                    className={`${compactMode ? 'h-24' : 'h-32'} overflow-y-auto border border-slate-700 bg-slate-900 rounded p-2 space-y-2 custom-scrollbar transition-all`}
                     onWheel={(e) => e.stopPropagation()} 
                 >
                     {state.chatHistory.length === 0 && (
@@ -356,31 +389,70 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   }, [edges, id, templateRegistry]);
 
   // --- Store Synchronization Effect ---
-  // Registers source-out pass-through and strategy for EACH instance
+  // Registers source/target relays and strategy for EACH instance
   useEffect(() => {
+    const syntheticContainers: ContainerDefinition[] = [];
+    let canvasDims = { width: 0, height: 0 };
+
     for (let i = 0; i < instanceCount; i++) {
         const sourceData = getSourceData(i);
         const targetData = getTargetData(i);
         const instanceState = analystInstances[i];
 
-        // 1. Pass-through registration for Remapper consumption (Source Layer Context)
+        // 1. Source Relay (ResolvedRegistry)
+        // Pass-through layer data to source-out handle so Remapper can consume it
         if (sourceData) {
             registerResolved(id, `source-out-${i}`, sourceData);
         }
 
-        // 2. Strategy registration
-        if (instanceState && instanceState.layoutStrategy) {
-            registerAnalysis(id, `source-out-${i}`, instanceState.layoutStrategy);
-        }
-        
-        // 3. Synthetic Template Registration (Optional, mainly for debug/completeness)
+        // 2. Target Relay (TemplateRegistry Construction)
+        // Collect target definitions to create a synthetic template for downstream consumption
         if (targetData) {
-            // We don't necessarily need to register a template output unless we add `target-out` handles
-            // But if we did:
-            // registerTemplate(...)
+            // Only capture dimensions from the first valid target connected
+            if (canvasDims.width === 0) {
+                const edge = edges.find(e => e.target === id && e.targetHandle === `target-in-${i}`);
+                if (edge) {
+                    const t = templateRegistry[edge.source];
+                    if (t) canvasDims = t.canvas;
+                }
+            }
+
+            // Map the opaque handle ID 'target-out-${i}' to the actual container definition
+            // This allows RemapperNode to find 'target-out-0' in the registry and get the correct 'BG' container
+            syntheticContainers.push({
+                id: `proxy-target-${i}`,
+                name: `target-out-${i}`, // CRITICAL: This MUST match the handle ID connected to Remapper
+                originalName: targetData.name, // Preserve original semantic name
+                bounds: targetData.bounds,
+                normalized: {
+                    x: canvasDims.width ? targetData.bounds.x / canvasDims.width : 0,
+                    y: canvasDims.height ? targetData.bounds.y / canvasDims.height : 0,
+                    w: canvasDims.width ? targetData.bounds.w / canvasDims.width : 0,
+                    h: canvasDims.height ? targetData.bounds.h / canvasDims.height : 0,
+                }
+            });
+        }
+
+        // 3. Strategy Registration (AnalysisRegistry)
+        if (instanceState && instanceState.layoutStrategy) {
+            // Register on source-out for standard Remapper consumption (connected to Source)
+            registerAnalysis(id, `source-out-${i}`, instanceState.layoutStrategy);
+            
+            // Register on strategy-out for explicit strategy consumption
+            registerAnalysis(id, `strategy-out-${i}`, instanceState.layoutStrategy);
         }
     }
-  }, [id, instanceCount, analystInstances, getSourceData, getTargetData, registerResolved, registerAnalysis]);
+
+    // Register the aggregated synthetic template if we have data
+    if (syntheticContainers.length > 0) {
+        const syntheticTemplate: TemplateMetadata = {
+            canvas: canvasDims.width > 0 ? canvasDims : { width: 1024, height: 1024 },
+            containers: syntheticContainers
+        };
+        registerTemplate(id, syntheticTemplate);
+    }
+
+  }, [id, instanceCount, analystInstances, getSourceData, getTargetData, registerResolved, registerAnalysis, registerTemplate, edges, templateRegistry]);
 
 
   // --- Action Handlers ---
@@ -647,6 +719,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
                       onRefine={handleRefine}
                       onModelChange={handleModelChange}
                       isAnalyzing={!!analyzingInstances[i]}
+                      compactMode={instanceCount > 1}
                   />
               );
           })}
